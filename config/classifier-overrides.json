@@ -1,0 +1,142 @@
+{
+  "_meta": {
+    "purpose": "Manual overrides for the rules-based card classifier. Each entry replaces the auto-classification entirely.",
+    "schema": "Map of canonical Scryfall card name -> { categories: CardCategory[], note?: string }",
+    "categories": [
+      "ramp",
+      "draw",
+      "removal",
+      "wipe",
+      "counterspell",
+      "tutor",
+      "recursion",
+      "wincon",
+      "stax",
+      "utility",
+      "land"
+    ],
+    "policy": [
+      "Add an entry only when the regex misfires and a fix in rules.ts would over-tag other cards.",
+      "If the regex itself is too narrow / too broad, prefer fixing rules.ts and writing a test instead.",
+      "Keep the note short: one sentence explaining why the override is needed."
+    ]
+  },
+  "overrides": {
+    "Smothering Tithe": {
+      "categories": ["ramp", "draw"],
+      "note": "Treasure tokens are ramp; replacement effect on opponent draws makes it pseudo-draw via tax pressure. Brief calls this out as the canonical ambiguous case."
+    },
+    "Dockside Extortionist": {
+      "categories": ["ramp"],
+      "note": "Treasure tokens; banned in some pods but still classifiable."
+    },
+    "Rhystic Study": {
+      "categories": ["draw"],
+      "note": "Repeatable card draw scaling with pod size."
+    },
+    "Mystic Remora": {
+      "categories": ["draw"],
+      "note": "Cumulative-upkeep card draw."
+    },
+    "Sylvan Library": {
+      "categories": ["draw"],
+      "note": "Replacement-effect draw + selection."
+    },
+    "Esper Sentinel": {
+      "categories": ["draw", "stax"],
+      "note": "Tax + draw on noncreature spells."
+    },
+    "Approach of the Second Sun": {
+      "categories": ["wincon"],
+      "note": "Alt-win text but the regex misses it (text says 'win the game' inside a conditional)."
+    },
+    "Thassa's Oracle": {
+      "categories": ["wincon"],
+      "note": "Combo wincon piece; flagged for analytics even though our auto-rule doesn't match the conditional."
+    },
+    "Laboratory Maniac": {
+      "categories": ["wincon"],
+      "note": "Same family as Thassa's Oracle."
+    },
+    "Jace, Wielder of Mysteries": {
+      "categories": ["wincon", "draw"],
+      "note": "Library-out wincon plus card draw."
+    },
+    "Demonic Tutor": {
+      "categories": ["tutor"],
+      "note": "Canonical broad tutor; ensure regex change never demotes it."
+    },
+    "Vampiric Tutor": {
+      "categories": ["tutor"],
+      "note": "Canonical broad tutor."
+    },
+    "Mystical Tutor": {
+      "categories": ["tutor"],
+      "note": "Narrow tutor (instants/sorceries) — still tutor for our purposes."
+    },
+    "Cyclonic Rift": {
+      "categories": ["removal", "wipe"],
+      "note": "Targeted removal at 2 mana; one-sided wipe at overload."
+    },
+    "Toxic Deluge": {
+      "categories": ["wipe"],
+      "note": "X-based -X/-X wipe; the parametric -X form may not match the literal -N pattern."
+    },
+    "Fierce Guardianship": {
+      "categories": ["counterspell"],
+      "note": "Free counter for commander decks."
+    },
+    "Force of Will": {
+      "categories": ["counterspell"],
+      "note": "Free counter."
+    },
+    "Pact of Negation": {
+      "categories": ["counterspell"],
+      "note": "Delayed-cost counter."
+    },
+    "Chord of Calling": {
+      "categories": ["tutor"],
+      "note": "Convoke creature tutor that puts it onto the battlefield directly."
+    },
+    "Birthing Pod": {
+      "categories": ["tutor"],
+      "note": "Repeatable tutor by sacrificing creatures."
+    },
+    "Animate Dead": {
+      "categories": ["recursion"],
+      "note": "Reanimator staple."
+    },
+    "Reanimate": {
+      "categories": ["recursion"],
+      "note": "Reanimator staple."
+    },
+    "Necromancy": {
+      "categories": ["recursion"],
+      "note": "Reanimator staple."
+    },
+    "Sol Ring": {
+      "categories": ["ramp"],
+      "note": "Mana rock — sanity-anchored override so future regex tweaks don't accidentally demote it."
+    },
+    "Mana Crypt": {
+      "categories": ["ramp"],
+      "note": "Mana rock; sanity anchor."
+    },
+    "Arcane Signet": {
+      "categories": ["ramp"],
+      "note": "Mana rock; sanity anchor."
+    },
+    "Cultivate": {
+      "categories": ["ramp"],
+      "note": "Land ramp; sanity anchor."
+    },
+    "Three Visits": {
+      "categories": ["ramp"],
+      "note": "Land ramp; sanity anchor."
+    },
+    "Farseek": {
+      "categories": ["ramp"],
+      "note": "Land ramp; sanity anchor."
+    }
+  }
+}
