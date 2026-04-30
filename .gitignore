@@ -26,6 +26,7 @@ yarn-debug.log*
 yarn-error.log*
 
 # local env files
+.env
 .env*.local
 
 # vercel
@@ -34,3 +35,21 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# python (sim service)
+sim/.venv/
+sim/**/__pycache__/
+sim/.pytest_cache/
+sim/.ruff_cache/
+sim/.mypy_cache/
+
+# sqlite local dev db
+prisma/dev.db
+prisma/dev.db-journal
+
+# scryfall bulk cache
+data/scryfall/
+
+# editor
+.idea/
+.vscode/

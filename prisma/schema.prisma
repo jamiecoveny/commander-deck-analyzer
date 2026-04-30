@@ -1,0 +1,110 @@
+// Prisma schema for Commander Deck Analyzer.
+//
+// Production target: PostgreSQL.
+// Local dev: SQLite is supported by switching the `provider` line and
+// DATABASE_URL — see docs/DEV_DB.md.
+//
+// Note on `categories`: the brief's sketch uses `String[]`, which is a
+// Postgres-only type. To keep the schema portable to SQLite, we store the
+// classifier output as a JSON-encoded string and parse via the typed
+// accessor in src/lib/db/card.ts. When we commit to Postgres in production
+// we can migrate this column to text[] in a follow-up migration.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  // Switch to "sqlite" + file URL for local dev (see docs/DEV_DB.md).
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String?  @unique
+  decks     Deck[]
+  createdAt DateTime @default(now())
+}
+
+model Deck {
+  id            String     @id @default(cuid())
+  userId        String?
+  user          User?      @relation(fields: [userId], references: [id])
+  name          String
+  commander     String
+  partner       String?
+  colorIdentity String // "WUBRG" subset, normalized
+  bracket       Int?
+  archetype     String?
+  cards         DeckCard[]
+  analyses      Analysis[]
+  playtests     Playtest[]
+  sourceUrl     String?
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  @@index([userId])
+}
+
+model DeckCard {
+  id          String  @id @default(cuid())
+  deckId      String
+  deck        Deck    @relation(fields: [deckId], references: [id], onDelete: Cascade)
+  cardName    String
+  oracleId    String // from Scryfall
+  quantity    Int     @default(1)
+  isCommander Boolean @default(false)
+
+  @@index([deckId])
+  @@index([oracleId])
+}
+
+model Card {
+  oracleId       String    @id
+  name           String    @unique
+  manaCost       String?
+  cmc            Float
+  typeLine       String
+  oracleText     String
+  colorIdentity  String
+  // JSON-encoded array of category strings (e.g. ["ramp","draw"]).
+  // See src/lib/db/card.ts for typed accessors.
+  categoriesJson String    @default("[]")
+  edhrecRank     Int?
+  priceUsd       Float?
+  priceCad       Float?
+  priceUpdatedAt DateTime?
+
+  @@index([edhrecRank])
+}
+
+model Analysis {
+  id              String   @id @default(cuid())
+  deckId          String
+  deck            Deck     @relation(fields: [deckId], references: [id], onDelete: Cascade)
+  bracketEstimate Int
+  rampCount       Int
+  drawCount       Int
+  removalCount    Int
+  wipesCount      Int
+  countersCount   Int
+  avgCmc          Float
+  combos          Json // Spellbook results
+  recommendations Json
+  createdAt       DateTime @default(now())
+
+  @@index([deckId])
+}
+
+model Playtest {
+  id        String   @id @default(cuid())
+  deckId    String
+  deck      Deck     @relation(fields: [deckId], references: [id], onDelete: Cascade)
+  games     Int
+  opponents Json // archetypes or deck IDs
+  results   Json // per-game logs + aggregates
+  createdAt DateTime @default(now())
+
+  @@index([deckId])
+}

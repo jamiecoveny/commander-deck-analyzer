@@ -1,36 +1,86 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Commander Deck Analyzer
 
-## Getting Started
+Web app that analyzes and playtests **Magic: The Gathering Commander (EDH)**
+decks. Paste a decklist, get curve / category breakdown / EDHrec comparison /
+combo detection / bracket estimate, then run a heuristic playtest sim against
+opponents in your bracket. Pricing in CAD via Face à Face Games.
 
-First, run the development server:
+> Mid-bracket EDH (2–3) by default. Not cEDH-only.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+## Status
+
+**Phase 1 — MVP scaffold.** Step 1 of 10 (project skeleton) is complete.
+Next: Scryfall bulk-data downloader + local card cache.
+
+See `docs/PLAN.md` and the original brief for the full roadmap.
+
+## Stack
+
+| Layer    | Choice                                       |
+| -------- | -------------------------------------------- |
+| Frontend | Next.js 14 (App Router) + TypeScript strict  |
+| Styling  | Tailwind CSS                                 |
+| DB / ORM | Prisma + PostgreSQL (SQLite for local dev)   |
+| Sim      | Python FastAPI microservice (`sim/`)         |
+| Hosting  | Vercel (web) + Railway/Fly.io (sim)          |
+
+## Repo layout
+
+```
+commander-deck-analyzer/
+├── src/
+│   ├── app/                 Next.js App Router pages
+│   └── lib/
+│       └── db/              Prisma client + typed accessors
+├── prisma/
+│   └── schema.prisma        Postgres-targeted schema, SQLite-portable
+├── sim/                     Python FastAPI playtest simulator
+│   ├── app/
+│   ├── tests/
+│   └── pyproject.toml
+├── config/
+│   ├── banned-list.json     Commander banned list (verify before prod)
+│   └── game-changers.json   WotC Game Changers + fast mana + tutors
+├── docs/
+│   └── DEV_DB.md            Postgres vs SQLite for local dev
+└── public/
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Getting started
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+npm install
+cp .env.example .env         # fill in DATABASE_URL etc.
+npm run dev                  # http://localhost:3000
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+For the simulator service (Phase 2 — skeleton only right now):
 
-## Learn More
+```bash
+cd sim
+python -m venv .venv && source .venv/bin/activate
+pip install -e ".[dev]"
+uvicorn app.main:app --reload --port 8001
+```
 
-To learn more about Next.js, take a look at the following resources:
+## Conventions
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+- **TypeScript strict mode**, `noUncheckedIndexedAccess` on. No `any`.
+- **Python**: type hints, ruff + black + mypy strict.
+- **Card names** must match Scryfall canonical capitalization exactly.
+- **Card data** is always verified against Scryfall — never trust model
+  memory for oracle text or legality.
+- **External attribution** — cite "via Scryfall / EDHrec / Spellbook"
+  anywhere their data is shown. Never reproduce paragraphs of their
+  content verbatim.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Data sources
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+| Source        | Use                                          |
+| ------------- | -------------------------------------------- |
+| Scryfall      | Card text, mana cost, color identity, prices |
+| EDHrec        | Inclusion %, average decks per commander     |
+| Spellbook     | Combo detection (`/find-my-combos/`)         |
+| Moxfield API  | Decklist URL ingestion                       |
+| Archidekt API | Decklist URL ingestion                       |
+| Face à Face   | CAD pricing (Phase 3, scraper)               |
