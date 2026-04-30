@@ -1,0 +1,115 @@
+[
+  {
+    "object": "card",
+    "id": "11111111-1111-1111-1111-111111111111",
+    "oracle_id": "aaa11111-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+    "name": "Sol Ring",
+    "layout": "normal",
+    "mana_cost": "{1}",
+    "cmc": 1,
+    "type_line": "Artifact",
+    "oracle_text": "{T}: Add {C}{C}.",
+    "color_identity": [],
+    "edhrec_rank": 1,
+    "prices": { "usd": "1.99" }
+  },
+  {
+    "object": "card",
+    "id": "22222222-2222-2222-2222-222222222222",
+    "oracle_id": "bbb22222-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+    "name": "Cultivate",
+    "layout": "normal",
+    "mana_cost": "{2}{G}",
+    "cmc": 3,
+    "type_line": "Sorcery",
+    "oracle_text": "Search your library for up to two basic land cards. Reveal them, put one onto the battlefield tapped and the other into your hand. Then shuffle.",
+    "color_identity": ["G"],
+    "edhrec_rank": 42,
+    "prices": { "usd": "0.20" }
+  },
+  {
+    "object": "card",
+    "id": "33333333-3333-3333-3333-333333333333",
+    "oracle_id": "ccc33333-cccc-cccc-cccc-cccccccccccc",
+    "name": "Brazen Borrower // Petty Theft",
+    "layout": "adventure",
+    "cmc": 3,
+    "color_identity": ["U"],
+    "card_faces": [
+      {
+        "name": "Brazen Borrower",
+        "mana_cost": "{1}{U}{U}",
+        "type_line": "Creature — Faerie Rogue",
+        "oracle_text": "Flash\nFlying"
+      },
+      {
+        "name": "Petty Theft",
+        "mana_cost": "{1}{U}",
+        "type_line": "Instant — Adventure",
+        "oracle_text": "Return target nonland permanent an opponent controls to its owner's hand."
+      }
+    ],
+    "edhrec_rank": 1234,
+    "prices": { "usd": null }
+  },
+  {
+    "object": "card",
+    "id": "44444444-4444-4444-4444-444444444444",
+    "oracle_id": "ddd44444-dddd-dddd-dddd-dddddddddddd",
+    "name": "Wear // Tear",
+    "layout": "split",
+    "cmc": 3,
+    "type_line": "Instant // Instant",
+    "color_identity": ["W", "R"],
+    "card_faces": [
+      {
+        "name": "Wear",
+        "mana_cost": "{1}{R}",
+        "type_line": "Instant",
+        "oracle_text": "Destroy target artifact."
+      },
+      {
+        "name": "Tear",
+        "mana_cost": "{W}",
+        "type_line": "Instant",
+        "oracle_text": "Destroy target enchantment."
+      }
+    ],
+    "prices": { "usd": "0.50" }
+  },
+  {
+    "object": "card",
+    "id": "55555555-5555-5555-5555-555555555555",
+    "oracle_id": "eee55555-eeee-eeee-eeee-eeeeeeeeeeee",
+    "name": "Brain Freeze",
+    "layout": "normal",
+    "mana_cost": "{U}",
+    "cmc": 1,
+    "type_line": "Instant",
+    "oracle_text": "Target player mills three cards. Storm",
+    "color_identity": ["U"]
+  },
+  {
+    "object": "card",
+    "id": "66666666-6666-6666-6666-666666666666",
+    "name": "Treasure Token",
+    "layout": "token",
+    "cmc": 0,
+    "type_line": "Token Artifact — Treasure",
+    "color_identity": []
+  },
+  {
+    "object": "card",
+    "id": "77777777-7777-7777-7777-777777777777",
+    "oracle_id": "fff77777-ffff-ffff-ffff-ffffffffffff",
+    "name": "Atraxa, Praetors' Voice",
+    "layout": "normal",
+    "mana_cost": "{G}{W}{U}{B}",
+    "cmc": 4,
+    "type_line": "Legendary Creature — Phyrexian Angel Horror",
+    "oracle_text": "Flying, vigilance, deathtouch, lifelink\nAt the beginning of your end step, proliferate.",
+    "color_identity": ["w", "u", "b", "g"],
+    "edhrec_rank": 5,
+    "prices": { "usd": "12.00" }
+  }
+]
