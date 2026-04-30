@@ -6,8 +6,8 @@ Mirrors the brief's "First Tasks" section. **Pause for review after step 5.**
 |---|------|--------|
 | 1 | Scaffold Next.js + Prisma + Tailwind; FastAPI service skeleton | ✅ Done |
 | 2 | Scryfall bulk-data downloader + local card cache | ✅ Done |
-| 3 | Decklist parser + validator (paste → structured Deck) | ⏳ Next |
-| 4 | Rules-based card classifier with overrides table | |
+| 3 | Decklist parser + validator (paste → structured Deck) | ✅ Done |
+| 4 | Rules-based card classifier with overrides table | ⏳ Next |
 | 5 | Analytics dashboard route + UI | |
 | 6 | Spellbook combo integration | (after review) |
 | 7 | Simulator skeleton w/ one archetype-template opponent | |
