@@ -21,6 +21,8 @@ import {
   type EnrichedLookupRow,
 } from "@/lib/scryfall/api";
 import { findCombos, type DetectedCombo } from "@/lib/spellbook";
+import { fetchEdhrecCommander, type EdhrecData } from "@/lib/edhrec";
+import { buildRecommendations } from "@/lib/recommend";
 
 export const runtime = "nodejs";
 
@@ -181,24 +183,36 @@ export async function POST(request: Request): Promise<Response> {
     categoryCounts: baseAnalysis.categoryCounts,
   });
 
-  // Spellbook combo detection. We feed all non-commander cards as
-  // `main` and the commander(s) separately. If Spellbook is unreachable
-  // or the schema drifts, degrade gracefully — the analytics output is
-  // still useful without combos.
+  // Spellbook combo detection + EDHrec inclusion data. Both run in
+  // parallel — the analytics pipeline doesn't need to chain through
+  // them. If either fails we degrade: combos -> []; edhrec -> null.
   const mainCardNames = validation.deck.cards
     .filter((c) => !c.isCommander)
     .map((c) => c.name);
+
   let combos: DetectedCombo[] = [];
   let comboLookupFailed = false;
-  try {
-    combos = await findCombos({
+  let edhrec: EdhrecData | null = null;
+
+  const [combosResult, edhrecResult] = await Promise.allSettled([
+    findCombos({
       cardNames: mainCardNames,
       commanderNames: validation.deck.commanders,
-    });
-  } catch (err) {
+    }),
+    fetchEdhrecCommander(validation.deck.commander),
+  ]);
+  if (combosResult.status === "fulfilled") {
+    combos = combosResult.value;
+  } else {
     comboLookupFailed = true;
     // eslint-disable-next-line no-console
-    console.warn("[analyze] spellbook lookup failed:", err);
+    console.warn("[analyze] spellbook lookup failed:", combosResult.reason);
+  }
+  if (edhrecResult.status === "fulfilled") {
+    edhrec = edhrecResult.value;
+  } else {
+    // eslint-disable-next-line no-console
+    console.warn("[analyze] edhrec fetch failed:", edhrecResult.reason);
   }
 
   const gamePlan = buildGamePlan({
@@ -211,12 +225,20 @@ export async function POST(request: Request): Promise<Response> {
     totalCards: baseAnalysis.totalCards,
   });
 
+  const recommendations = buildRecommendations({
+    deck: validation.deck,
+    edhrec,
+    combos,
+  });
+
   const analysis: AnalysisResult = {
     ...baseAnalysis,
     archetype,
     gamePlan,
     combos,
     comboLookupFailed,
+    edhrec,
+    recommendations,
   };
   return NextResponse.json<SuccessBody>({
     ok: true,

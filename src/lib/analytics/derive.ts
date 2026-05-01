@@ -154,7 +154,10 @@ function roundPips(pips: ColorPips): ColorPips {
 
 export function derive(
   input: DeriveInput,
-): Omit<AnalysisResult, "archetype" | "gamePlan" | "combos" | "comboLookupFailed"> {
+): Omit<
+  AnalysisResult,
+  "archetype" | "gamePlan" | "combos" | "comboLookupFailed" | "edhrec" | "recommendations"
+> {
   const cards: AnalyzedCard[] = [];
   const categoryCounts = emptyCategories();
   const manaCurve = emptyCurve();

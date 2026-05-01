@@ -4,6 +4,8 @@
 // consumes. Keep it serializable (no Maps, no Dates) — JSON in, JSON out.
 
 import type { CardCategory } from "@/lib/db/card";
+import type { EdhrecData } from "@/lib/edhrec";
+import type { Recommendation } from "@/lib/recommend";
 import type { DetectedCombo } from "@/lib/spellbook";
 
 /** CMC bucket -> count. 7+ collapses everything ≥ 7. */
@@ -79,4 +81,9 @@ export interface AnalysisResult {
   /** True if the Spellbook lookup failed and we degraded gracefully.
    *  The UI can show an "unavailable" hint instead of "0 combos found". */
   comboLookupFailed: boolean;
+  /** EDHrec snapshot for this commander. null if the commander isn't on
+   *  EDHrec or the fetch failed. */
+  edhrec: EdhrecData | null;
+  /** Tiered upgrade recommendations. */
+  recommendations: Recommendation[];
 }

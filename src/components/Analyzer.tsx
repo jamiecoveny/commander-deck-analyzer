@@ -178,6 +178,10 @@ function ResultPanel({ analysis }: { analysis: AnalysisResult }): JSX.Element {
         lookupFailed={analysis.comboLookupFailed}
       />
 
+      <RecommendationsBox recs={analysis.recommendations} />
+
+      {analysis.edhrec && <EdhrecCompareBox edhrec={analysis.edhrec} />}
+
       <div className="grid gap-6 sm:grid-cols-2">
         <CurveBox manaCurve={analysis.manaCurve} />
         <PipsBox pipCount={analysis.pipCount} />
@@ -615,5 +619,139 @@ function Stat({
       </p>
       <p className="text-base font-medium font-mono">{value}</p>
     </div>
+  );
+}
+
+function RecommendationsBox({
+  recs,
+}: {
+  recs: AnalysisResult["recommendations"];
+}): JSX.Element {
+  if (recs.length === 0) {
+    return (
+      <section className="rounded-md border border-zinc-800 bg-zinc-950/50 p-4">
+        <p className="text-xs uppercase tracking-widest text-zinc-500 mb-2">
+          Recommendations
+        </p>
+        <p className="text-sm text-zinc-500">
+          No recommendations — your deck matches commander staples well, or
+          EDHrec/Spellbook didn&apos;t return data for this commander.
+        </p>
+      </section>
+    );
+  }
+  const byTier: Record<number, typeof recs> = { 1: [], 2: [], 3: [] };
+  for (const r of recs) byTier[r.tier]?.push(r);
+
+  return (
+    <section className="rounded-md border border-zinc-800 bg-zinc-950/50 p-4 space-y-4">
+      <p className="text-xs uppercase tracking-widest text-zinc-500">
+        Recommendations
+      </p>
+      {byTier[1] && byTier[1].length > 0 && (
+        <TierGroup
+          label="Must fix"
+          color="red"
+          recs={byTier[1]}
+        />
+      )}
+      {byTier[2] && byTier[2].length > 0 && (
+        <TierGroup
+          label="Strong upgrades"
+          color="emerald"
+          recs={byTier[2]}
+        />
+      )}
+      {byTier[3] && byTier[3].length > 0 && (
+        <TierGroup
+          label="Nice to have"
+          color="zinc"
+          recs={byTier[3]}
+        />
+      )}
+    </section>
+  );
+}
+
+function TierGroup({
+  label,
+  color,
+  recs,
+}: {
+  label: string;
+  color: "red" | "emerald" | "zinc";
+  recs: AnalysisResult["recommendations"];
+}): JSX.Element {
+  const headingColor =
+    color === "red"
+      ? "text-red-300"
+      : color === "emerald"
+        ? "text-emerald-300"
+        : "text-zinc-400";
+  return (
+    <div>
+      <p className={`text-xs ${headingColor} mb-2`}>
+        {label} ({recs.length})
+      </p>
+      <ul className="space-y-2">
+        {recs.map((r, i) => (
+          <li key={i} className="text-xs">
+            <p className="text-zinc-200">{r.title}</p>
+            <p className="text-zinc-500 text-[11px]">
+              {r.reason}
+              {r.source === "edhrec" && (
+                <span className="ml-1 text-zinc-600">via EDHrec</span>
+              )}
+              {r.source === "spellbook" && (
+                <span className="ml-1 text-zinc-600">via Spellbook</span>
+              )}
+            </p>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function EdhrecCompareBox({
+  edhrec,
+}: {
+  edhrec: NonNullable<AnalysisResult["edhrec"]>;
+}): JSX.Element {
+  const t = edhrec.averageTypeCounts;
+  const rows: Array<[string, number]> = [
+    ["Creatures", t.creature],
+    ["Instants", t.instant],
+    ["Sorceries", t.sorcery],
+    ["Artifacts", t.artifact],
+    ["Enchantments", t.enchantment],
+    ["Planeswalkers", t.planeswalker],
+    ["Lands (basic)", t.basic],
+    ["Lands (nonbasic)", t.nonbasic],
+  ];
+  return (
+    <section className="rounded-md border border-zinc-800 bg-zinc-950/50 p-4">
+      <p className="text-xs uppercase tracking-widest text-zinc-500 mb-3">
+        EDHrec average for this commander{" "}
+        <span className="text-zinc-600">
+          ({edhrec.numDecks.toLocaleString()} decks tracked)
+        </span>
+      </p>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {rows.map(([label, value]) => (
+          <div key={label} className="rounded border border-zinc-800 px-3 py-2">
+            <p className="text-[10px] uppercase tracking-wider text-zinc-500">
+              {label}
+            </p>
+            <p className="text-base font-mono">{value.toFixed(1)}</p>
+          </div>
+        ))}
+      </div>
+      {edhrec.similarCommanders.length > 0 && (
+        <p className="mt-3 text-xs text-zinc-500">
+          Similar commanders: {edhrec.similarCommanders.slice(0, 5).join(", ")}
+        </p>
+      )}
+    </section>
   );
 }

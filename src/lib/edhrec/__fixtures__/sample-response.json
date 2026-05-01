@@ -1,0 +1,47 @@
+{
+  "creature": 24,
+  "instant": 9,
+  "sorcery": 8,
+  "artifact": 9,
+  "enchantment": 7,
+  "battle": 0,
+  "planeswalker": 6,
+  "land": 36,
+  "basic": 13,
+  "nonbasic": 23,
+  "deck_size": 90,
+  "num_decks_avg": 40720,
+  "total_card_count": 100,
+  "similar": ["Atraxa, Grand Unifier", "Falco Spara, Pactweaver"],
+  "header": "Atraxa, Praetors' Voice (Commander)",
+  "container": {
+    "json_dict": {
+      "cardlists": [
+        {
+          "tag": "manaartifacts",
+          "header": "Mana Artifacts",
+          "cardviews": [
+            { "name": "Sol Ring", "inclusion": 34662, "potential_decks": 40720, "synergy": -0.02 },
+            { "name": "Arcane Signet", "inclusion": 30000, "potential_decks": 40720, "synergy": 0.0 },
+            { "name": "Mind Stone", "inclusion": 5000, "potential_decks": 40720, "synergy": 0.05 }
+          ]
+        },
+        {
+          "tag": "topcards",
+          "header": "Top Cards",
+          "cardviews": [
+            { "name": "Swords to Plowshares", "inclusion": 22367, "potential_decks": 40720, "synergy": 0.1 },
+            { "name": "Farseek", "inclusion": 18578, "potential_decks": 40720, "synergy": 0.05 }
+          ]
+        },
+        {
+          "tag": "newcards",
+          "header": "New Cards",
+          "cardviews": [
+            { "name": "Some New Card", "inclusion": 100, "potential_decks": 40720 }
+          ]
+        }
+      ]
+    }
+  }
+}
