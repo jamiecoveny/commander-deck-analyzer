@@ -12,16 +12,41 @@ Mirrors the brief's "First Tasks" section. **Pause for review after step 5.**
 | 6 | Spellbook combo integration | ✅ Done |
 | 7 | Simulator skeleton w/ one archetype-template opponent | ✅ Done |
 | 8 | Recommendations engine + EDHrec inclusion-% comparison (no pricing) | ✅ Done |
-| 9 | Face à Face price scraper + integrate into recommendations | ⏳ Next |
-| 10 | Auth, saved decks, comparison page | |
+| 9 | Face à Face price scraper + integrate into recommendations | ❌ Canceled (user opted to price manually; F2F robots.txt disallows /search) |
+| 10 | Saved decks (anonymous session) + library + comparison page | ✅ Done (NextAuth deferred per brief's "optional for MVP" note) |
 
 ## Phase boundaries
 
-- **Phase 1 (MVP)**: steps 1–5, 8 (no pricing). End: a user can paste a deck
-  and see analytics + recommendations.
-- **Phase 2 (Playtest)**: step 7 with real engine; card profiles for top 500.
-- **Phase 3 (Polish)**: step 9 + auth + URL ingestion + comparison.
-- **Phase 4 (Stretch)**: bracket-matched opponent pool, pod evaluator, PDF.
+- **Phase 1 (MVP)**: steps 1–5, 8 — ✅ done.
+- **Phase 2 (Playtest)**: step 7 (heuristic sim, TS not Python) — ✅ done.
+- **Phase 3 (Polish)**: step 10 (saved decks + library + compare) — ✅ done.
+  Step 9 (CAD pricing) canceled by user. URL ingestion (Moxfield/Archidekt)
+  not implemented; the parser handles paste-text, which covers most uses.
+- **Phase 4 (Stretch)**: bracket-matched opponent pool, pod evaluator,
+  PDF export, real auth — not started. None blocked anything in 1–8.
+
+## Future work
+
+- **Real auth**: NextAuth email magic links. Today the app uses an
+  anonymous session cookie (`cda_session_id`) → User row binding. To
+  migrate, keep the User table, add an `email` field, and let an authed
+  user inherit decks owned by their old session id.
+- **Postgres in production**: switch the prisma datasource provider
+  back to `postgresql` and re-migrate. The schema is portable; the only
+  Postgres-only feature in use is the `Json` columns on Analysis /
+  Playtest, which Prisma handles transparently on both.
+- **URL ingestion**: parse Moxfield + Archidekt deck URLs into the
+  paste-text format. Moxfield ToS warns against bulk pulls but
+  user-pasted URLs are fine.
+- **Bracket estimator**: detect Game Changers / fast mana / MLD / early
+  combos and assign Bracket 2–5. The config files are already in place
+  (`config/banned-list.json`, `config/game-changers.json`).
+- **F2F CAD pricing**: build a name → product-handle index from their
+  public sitemap (no `/search`), then use Shopify's `/products/<handle>.json`.
+  Robots.txt allows that path. Keep cached 24h.
+- **EDHrec category-count comparison**: their JSON exposes type-line
+  counts but not "average ramp count." Computing it requires fetching
+  the average deck JSON and re-classifying — doable, deferred.
 
 ## Open decisions logged so far
 

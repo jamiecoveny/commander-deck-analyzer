@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import type { AnalysisResult } from "@/lib/analytics";
 import type { SimulateResponse } from "@/lib/sim";
@@ -35,6 +35,23 @@ export default function Analyzer(): JSX.Element {
   const [result, setResult] = useState<ApiResponse | null>(null);
   const [simResult, setSimResult] = useState<SimResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // ?deck=<id> support: when arriving from "Re-analyze" on a saved
+  // deck, fetch the stored decklist text and pre-fill the textarea.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const id = params.get("deck");
+    if (!id) return;
+    fetch(`/api/decks/${id}`)
+      .then((r) => r.json())
+      .then((data: { ok: boolean; decklistText?: string }) => {
+        if (data.ok && data.decklistText) setText(data.decklistText);
+      })
+      .catch(() => {
+        /* silent — user can still paste manually */
+      });
+  }, []);
 
   async function onSubmit(e: React.FormEvent): Promise<void> {
     e.preventDefault();
@@ -115,6 +132,14 @@ export default function Analyzer(): JSX.Element {
       {result && result.ok && <ResultPanel analysis={result.analysis} />}
 
       {result && result.ok && (
+        <SaveDeckBox
+          analysis={result.analysis}
+          decklistText={text}
+          defaultName={result.analysis.commander}
+        />
+      )}
+
+      {result && result.ok && (
         <SimPanel
           loading={simLoading}
           onRun={onSimulate}
@@ -122,6 +147,90 @@ export default function Analyzer(): JSX.Element {
         />
       )}
     </div>
+  );
+}
+
+function SaveDeckBox({
+  analysis,
+  decklistText,
+  defaultName,
+}: {
+  analysis: AnalysisResult;
+  decklistText: string;
+  defaultName: string;
+}): JSX.Element {
+  const [name, setName] = useState(defaultName);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState<{ id: string } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function onSave(): Promise<void> {
+    setSaving(true);
+    setError(null);
+    try {
+      const r = await fetch("/api/decks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: name.trim() || defaultName,
+          text: decklistText,
+          analysis,
+        }),
+      });
+      const data = (await r.json()) as
+        | { ok: true; deck: { id: string } }
+        | { ok: false; error: string };
+      if (!data.ok) throw new Error(data.error);
+      setSaved({ id: data.deck.id });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "save failed");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (saved) {
+    return (
+      <section className="rounded-md border border-emerald-900/50 bg-emerald-950/20 p-4 text-sm">
+        <p className="text-emerald-200">
+          Saved.{" "}
+          <a
+            href={`/library/${saved.id}`}
+            className="underline hover:text-white"
+          >
+            View in library →
+          </a>
+        </p>
+      </section>
+    );
+  }
+
+  return (
+    <section className="rounded-md border border-zinc-800 bg-zinc-950/50 p-4">
+      <p className="text-xs uppercase tracking-widest text-zinc-500 mb-2">
+        Save to library
+      </p>
+      <div className="flex gap-2">
+        <input
+          type="text"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="Deck name"
+          className="flex-1 rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-200"
+        />
+        <button
+          type="button"
+          onClick={onSave}
+          disabled={saving}
+          className="rounded-md bg-zinc-100 px-4 py-2 text-sm font-medium text-zinc-900 hover:bg-white disabled:opacity-50"
+        >
+          {saving ? "Saving…" : "Save"}
+        </button>
+      </div>
+      {error && (
+        <p className="mt-2 text-xs text-red-300">Couldn&apos;t save: {error}</p>
+      )}
+    </section>
   );
 }
 
