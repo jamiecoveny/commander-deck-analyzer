@@ -8,7 +8,7 @@ Mirrors the brief's "First Tasks" section. **Pause for review after step 5.**
 | 2 | Scryfall bulk-data downloader + local card cache | ✅ Done |
 | 3 | Decklist parser + validator (paste → structured Deck) | ✅ Done |
 | 4 | Rules-based card classifier with overrides table | ✅ Done |
-| 5 | Analytics dashboard route + UI | ⏳ Next (PAUSE for review) |
+| 5 | Analytics dashboard route + UI | ✅ Done (PAUSE for review) |
 | 6 | Spellbook combo integration | (after review) |
 | 7 | Simulator skeleton w/ one archetype-template opponent | |
 | 8 | Recommendations engine (no pricing) | |

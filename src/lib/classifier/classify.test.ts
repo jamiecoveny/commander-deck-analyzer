@@ -46,6 +46,17 @@ describe("classify — single-category cards", () => {
     ).toEqual(["draw"]);
   });
 
+  it("classifies Wheel-style symmetric draws as draw (third-person verb)", () => {
+    const cats = classify(
+      card(
+        "Wheel of Fortune",
+        "Sorcery",
+        "Each player discards their hand, then draws seven cards.",
+      ),
+    );
+    expect(cats).toContain("draw");
+  });
+
   it("classifies a counterspell", () => {
     expect(
       classify(

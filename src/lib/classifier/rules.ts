@@ -30,8 +30,10 @@ export const RAMP_PATTERNS: readonly RegExp[] = [
 // ---------- card draw ----------
 
 export const DRAW_PATTERNS: readonly RegExp[] = [
-  /\bdraw \w+ cards?\b/i,
-  /\bdraws? a card\b/i,
+  // Cover both imperative ("draw two cards") and third-person
+  // ("each player draws seven cards" — Wheel of Fortune).
+  /\bdraws? \w+ cards?\b/i,
+  /\bdraws? (?:a|an) card\b/i,
   /\bdraws? an (?:additional|extra) card\b/i,
 ];
 

@@ -1,0 +1,189 @@
+// POST /api/analyze
+// Accepts a pasted decklist and returns a full AnalysisResult.
+//
+// Pipeline: parseDecklist -> Scryfall enriched lookup -> validateDecklist
+// -> per-card classification -> derive analytics -> archetype guess.
+//
+// The Scryfall lookup is the live API (cached). Production deployments
+// should switch to the Prisma-backed lookup once `npm run scryfall:sync`
+// has populated the Card table.
+
+import { NextResponse } from "next/server";
+import { z } from "zod";
+
+import { classify, loadClassifierOverrides } from "@/lib/classifier";
+import { CARD_CATEGORIES } from "@/lib/db/card";
+import { parseDecklist, validateDecklist } from "@/lib/decklist";
+import { derive, guessArchetype } from "@/lib/analytics";
+import type { AnalysisResult } from "@/lib/analytics";
+import {
+  lookupEnrichedCardsViaScryfall,
+  type EnrichedLookupRow,
+} from "@/lib/scryfall/api";
+
+export const runtime = "nodejs";
+
+const RequestSchema = z.object({
+  text: z.string().min(1).max(50_000),
+});
+
+function buildDeriveCards(
+  validated: ReadonlyArray<{
+    name: string;
+    oracleId: string;
+    quantity: number;
+    isCommander: boolean;
+  }>,
+  enriched: ReadonlyMap<string, EnrichedLookupRow>,
+  overrides: Awaited<ReturnType<typeof loadClassifierOverrides>>,
+): Array<{
+  name: string;
+  oracleId: string;
+  quantity: number;
+  isCommander: boolean;
+  cmc: number;
+  typeLine: string;
+  manaCost: string | null;
+  categories: ReturnType<typeof classify>;
+}> {
+  const out: ReturnType<typeof buildDeriveCards> = [];
+  for (const c of validated) {
+    const meta = enriched.get(c.name);
+    if (!meta) continue; // shouldn't happen — validator guarantees this
+    const cats = classify(
+      {
+        name: meta.name,
+        typeLine: meta.typeLine,
+        oracleText: meta.oracleText,
+      },
+      { overrides },
+    );
+    out.push({
+      name: c.name,
+      oracleId: c.oracleId,
+      quantity: c.quantity,
+      isCommander: c.isCommander,
+      cmc: meta.cmc,
+      typeLine: meta.typeLine,
+      manaCost: meta.manaCost,
+      categories: cats,
+    });
+  }
+  return out;
+}
+
+interface ErrorBody {
+  ok: false;
+  errors: unknown[];
+  warnings?: unknown[];
+}
+
+interface SuccessBody {
+  ok: true;
+  analysis: AnalysisResult;
+  warnings: unknown[];
+}
+
+export async function POST(request: Request): Promise<Response> {
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json<ErrorBody>(
+      {
+        ok: false,
+        errors: [{ error: "parse_error", message: "request body is not valid JSON" }],
+      },
+      { status: 400 },
+    );
+  }
+
+  const parsedBody = RequestSchema.safeParse(body);
+  if (!parsedBody.success) {
+    return NextResponse.json<ErrorBody>(
+      {
+        ok: false,
+        errors: [
+          {
+            error: "parse_error",
+            message: "expected { text: string }",
+            issues: parsedBody.error.issues,
+          },
+        ],
+      },
+      { status: 400 },
+    );
+  }
+
+  const parsed = parseDecklist(parsedBody.data.text);
+  if (parsed.lines.length === 0) {
+    return NextResponse.json<ErrorBody>(
+      {
+        ok: false,
+        errors: [{ error: "wrong_total", expected: 100, actual: 0 }],
+        warnings: parsed.warnings,
+      },
+      { status: 400 },
+    );
+  }
+
+  const uniqueNames = Array.from(new Set(parsed.lines.map((l) => l.name)));
+  const enriched = await lookupEnrichedCardsViaScryfall(uniqueNames);
+
+  // Validator gets a thin wrapper that strips down to CardLookupRow.
+  const validation = await validateDecklist(parsed, {
+    lookupCards: async () => ({
+      found: new Map(enriched.found),
+      missing: enriched.missing,
+    }),
+  });
+
+  if (!validation.ok) {
+    return NextResponse.json<ErrorBody>(
+      {
+        ok: false,
+        errors: validation.errors,
+        warnings: validation.warnings,
+      },
+      { status: 422 },
+    );
+  }
+
+  const overrides = await loadClassifierOverrides();
+  const deriveCards = buildDeriveCards(
+    validation.deck.cards,
+    enriched.found,
+    overrides,
+  );
+
+  // Type-assertion guard: classify() returns CardCategory[], which is
+  // exactly what derive's `categories` expects.
+  void CARD_CATEGORIES;
+
+  const baseAnalysis = derive({
+    commander: validation.deck.commander,
+    commanders: validation.deck.commanders,
+    colorIdentity: validation.deck.colorIdentity,
+    cards: deriveCards,
+  });
+
+  // Find the commander entry so the archetype heuristic can read its
+  // type line and oracle text.
+  const cmdrName = validation.deck.commanders[0] ?? "";
+  const cmdrMeta = enriched.found.get(cmdrName);
+  const archetype = guessArchetype({
+    commanderName: cmdrName,
+    commanderTypeLine: cmdrMeta?.typeLine,
+    commanderOracleText: cmdrMeta?.oracleText,
+    averageCmc: baseAnalysis.averageCmc,
+    totalCards: baseAnalysis.totalCards,
+    categoryCounts: baseAnalysis.categoryCounts,
+  });
+
+  const analysis: AnalysisResult = { ...baseAnalysis, archetype };
+  return NextResponse.json<SuccessBody>({
+    ok: true,
+    analysis,
+    warnings: validation.warnings,
+  });
+}
