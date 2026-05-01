@@ -15,6 +15,10 @@ export interface NormalizedCard {
   typeLine: string;
   oracleText: string;
   colorIdentity: string; // "WUBRG" subset, sorted
+  /** Integer power; 0 for non-creatures or `*` / `X` placeholders. */
+  power: number;
+  /** Integer toughness; 0 for non-creatures or `*` / `X` placeholders. */
+  toughness: number;
   edhrecRank: number | null;
   priceUsd: number | null;
 }
@@ -71,6 +75,13 @@ function parsePriceUsd(raw: string | null | undefined): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+/** Coerce P/T strings ("2", "*", "1+*", "X") to a non-negative int. */
+function parsePT(raw: string | undefined): number {
+  if (!raw) return 0;
+  const n = Number.parseInt(raw, 10);
+  return Number.isFinite(n) && n >= 0 ? n : 0;
+}
+
 /**
  * Returns null for cards we want to skip — currently:
  *   - missing oracle_id (some art-series printings)
@@ -113,6 +124,14 @@ export function normalize(card: ScryfallCard): NormalizedCard | null {
     oracleText = card.oracle_text ?? "";
   }
 
+  // For multi-faced cards, the front face's P/T is what matters at cast.
+  const power = isMultiface
+    ? parsePT(card.card_faces?.[0]?.power as string | undefined)
+    : parsePT(card.power);
+  const toughness = isMultiface
+    ? parsePT(card.card_faces?.[0]?.toughness as string | undefined)
+    : parsePT(card.toughness);
+
   return {
     oracleId: card.oracle_id,
     name: card.name,
@@ -121,6 +140,8 @@ export function normalize(card: ScryfallCard): NormalizedCard | null {
     typeLine,
     oracleText,
     colorIdentity: sortColorIdentity(card.color_identity),
+    power,
+    toughness,
     edhrecRank: card.edhrec_rank ?? null,
     priceUsd: parsePriceUsd(card.prices?.usd),
   };

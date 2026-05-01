@@ -19,6 +19,8 @@ const ScryfallCardFaceSchema = z.object({
   mana_cost: z.string().optional(),
   type_line: z.string().optional(),
   oracle_text: z.string().optional(),
+  power: z.string().optional(),
+  toughness: z.string().optional(),
 });
 
 export const ScryfallCardSchema = z
@@ -33,6 +35,10 @@ export const ScryfallCardSchema = z
     type_line: z.string().optional(),
     oracle_text: z.string().optional(),
     color_identity: z.array(z.string()).default([]),
+    // Power/toughness are strings on Scryfall ("2", "*", "1+*"); we coerce
+    // to int in the normalizer and treat non-numeric as 0.
+    power: z.string().optional(),
+    toughness: z.string().optional(),
     edhrec_rank: z.number().int().nullable().optional(),
     prices: ScryfallPricesSchema.optional(),
     card_faces: z.array(ScryfallCardFaceSchema).optional(),

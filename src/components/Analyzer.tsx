@@ -3,10 +3,15 @@
 import { useState } from "react";
 
 import type { AnalysisResult } from "@/lib/analytics";
+import type { SimulateResponse } from "@/lib/sim";
 
 type ApiResponse =
   | { ok: true; analysis: AnalysisResult; warnings: unknown[] }
   | { ok: false; errors: Array<Record<string, unknown>>; warnings?: unknown[] };
+
+type SimResponse =
+  | { ok: true; result: SimulateResponse }
+  | { ok: false; errors: Array<Record<string, unknown>> };
 
 const SAMPLE = `// Sample — paste your own decklist
 1 Atraxa, Praetors' Voice *CMDR*
@@ -26,7 +31,9 @@ const SAMPLE = `// Sample — paste your own decklist
 export default function Analyzer(): JSX.Element {
   const [text, setText] = useState<string>(SAMPLE);
   const [loading, setLoading] = useState<boolean>(false);
+  const [simLoading, setSimLoading] = useState<boolean>(false);
   const [result, setResult] = useState<ApiResponse | null>(null);
+  const [simResult, setSimResult] = useState<SimResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function onSubmit(e: React.FormEvent): Promise<void> {
@@ -46,6 +53,24 @@ export default function Analyzer(): JSX.Element {
       setError(err instanceof Error ? err.message : "request failed");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function onSimulate(games: number): Promise<void> {
+    setSimLoading(true);
+    setSimResult(null);
+    try {
+      const r = await fetch("/api/simulate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text, games }),
+      });
+      const data = (await r.json()) as SimResponse;
+      setSimResult(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "simulate failed");
+    } finally {
+      setSimLoading(false);
     }
   }
 
@@ -88,6 +113,14 @@ export default function Analyzer(): JSX.Element {
 
       {result && !result.ok && <ErrorPanel errors={result.errors} />}
       {result && result.ok && <ResultPanel analysis={result.analysis} />}
+
+      {result && result.ok && (
+        <SimPanel
+          loading={simLoading}
+          onRun={onSimulate}
+          response={simResult}
+        />
+      )}
     </div>
   );
 }
@@ -442,5 +475,145 @@ function CardsTable({
         </table>
       </div>
     </section>
+  );
+}
+
+function SimPanel({
+  loading,
+  onRun,
+  response,
+}: {
+  loading: boolean;
+  onRun: (games: number) => void | Promise<void>;
+  response: SimResponse | null;
+}): JSX.Element {
+  return (
+    <section className="rounded-md border border-zinc-800 bg-zinc-950/50 p-4 space-y-4">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="text-xs uppercase tracking-widest text-zinc-500">
+            Playtest simulator
+          </p>
+          <p className="text-xs text-zinc-500 mt-1">
+            Heuristic — coarse approximation, not a deterministic prediction.
+            Opponents: 3× Bracket-3 generic midrange.
+          </p>
+        </div>
+        <div className="flex gap-2">
+          {[1, 5, 10].map((n) => (
+            <button
+              key={n}
+              type="button"
+              disabled={loading}
+              onClick={() => onRun(n)}
+              className="rounded-md border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-xs text-zinc-200 hover:bg-zinc-800 disabled:opacity-50"
+            >
+              {loading ? "Running…" : `Run ${n}`}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {response && !response.ok && (
+        <div className="rounded border border-red-900 bg-red-950/30 p-3 text-xs text-red-100/80">
+          {JSON.stringify(response.errors)}
+        </div>
+      )}
+
+      {response && response.ok && <SimResults result={response.result} />}
+    </section>
+  );
+}
+
+function SimResults({
+  result,
+}: {
+  result: SimulateResponse;
+}): JSX.Element {
+  const a = result.aggregate;
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+        <Stat label="Win rate" value={`${(a.winRate * 100).toFixed(0)}%`} />
+        <Stat label="Avg turns" value={a.avgTurns.toFixed(1)} />
+        <Stat
+          label="Avg cmdr turn"
+          value={a.avgCommanderTurn != null ? a.avgCommanderTurn.toFixed(1) : "—"}
+        />
+        <Stat
+          label="Avg wincon turn"
+          value={a.avgFirstWinconTurn != null ? a.avgFirstWinconTurn.toFixed(1) : "—"}
+        />
+        <Stat label="Mull rate" value={a.mulliganRate.toFixed(2)} />
+      </div>
+
+      {Object.keys(a.failureModes).length > 0 && (
+        <div className="text-xs">
+          <p className="text-zinc-500 mb-1">Failure modes:</p>
+          <ul className="list-disc list-inside text-zinc-300">
+            {Object.entries(a.failureModes).map(([reason, n]) => (
+              <li key={reason}>
+                {reason}: {n}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      <details className="text-xs">
+        <summary className="cursor-pointer text-zinc-400 hover:text-zinc-200">
+          Per-game logs ({result.games.length} game
+          {result.games.length === 1 ? "" : "s"})
+        </summary>
+        <div className="mt-2 space-y-3">
+          {result.games.map((g, i) => (
+            <div
+              key={i}
+              className="rounded border border-zinc-800 p-2 max-h-48 overflow-y-auto font-mono text-[10px]"
+            >
+              <p className="text-zinc-500 mb-1">
+                Game {i + 1} — winner: {g.winner ?? "stalemate"}, turns: {g.turns}
+              </p>
+              {g.log.slice(0, 80).map((e, j) => (
+                <p key={j} className="text-zinc-400">
+                  T{e.turn} {e.playerId}: {e.text}
+                </p>
+              ))}
+              {g.log.length > 80 && (
+                <p className="text-zinc-600">… {g.log.length - 80} more events</p>
+              )}
+            </div>
+          ))}
+        </div>
+      </details>
+
+      <details className="text-xs">
+        <summary className="cursor-pointer text-zinc-500 hover:text-zinc-300">
+          Caveats
+        </summary>
+        <ul className="mt-1 list-disc list-inside text-zinc-500 space-y-0.5">
+          {result.notes.map((n, i) => (
+            <li key={i}>{n}</li>
+          ))}
+        </ul>
+      </details>
+    </div>
+  );
+}
+
+function Stat({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}): JSX.Element {
+  return (
+    <div className="rounded border border-zinc-800 px-3 py-2">
+      <p className="text-[10px] uppercase tracking-wider text-zinc-500">
+        {label}
+      </p>
+      <p className="text-base font-medium font-mono">{value}</p>
+    </div>
   );
 }

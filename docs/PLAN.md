@@ -10,8 +10,8 @@ Mirrors the brief's "First Tasks" section. **Pause for review after step 5.**
 | 4 | Rules-based card classifier with overrides table | ✅ Done |
 | 5 | Analytics dashboard route + UI | ✅ Done (PAUSE for review) |
 | 6 | Spellbook combo integration | ✅ Done |
-| 7 | Simulator skeleton w/ one archetype-template opponent | ⏳ Next |
-| 8 | Recommendations engine (no pricing) | |
+| 7 | Simulator skeleton w/ one archetype-template opponent | ✅ Done |
+| 8 | Recommendations engine (no pricing) | ⏳ Next |
 | 9 | Face à Face price scraper + integrate into recommendations | |
 | 10 | Auth, saved decks, comparison page | |
 
@@ -32,9 +32,12 @@ Mirrors the brief's "First Tasks" section. **Pause for review after step 5.**
 - **Banned list / Game Changers list**: hardcoded JSON in `config/`,
   marked `lastVerified: null` until cross-checked against the live WotC
   source. Re-verify on every Scryfall bulk-data sync.
-- **Python**: not yet installed on dev box. Sim service skeleton is in
-  place but cannot be run/tested until Python 3.11+ is installed. This is
-  fine — Phase 1 doesn't depend on the sim.
+- **Python sim service deferred indefinitely.** Step 7 implemented the
+  heuristic simulator in TypeScript instead. The sim/ FastAPI scaffold
+  stays for future use (a real rules engine via Forge would justify
+  Python), but Phase 1's heuristic playtest doesn't need IPC overhead
+  or numpy — it's pure decision logic over a coarse game state. The
+  Python skeleton remains untested.
 - **stream-json import path**: bundler-mode TS doesn't auto-append `.js`
   to the resolved target of stream-json's `"./*": "./src/*"` exports
   wildcard, so we use `stream-json/parser.js` and

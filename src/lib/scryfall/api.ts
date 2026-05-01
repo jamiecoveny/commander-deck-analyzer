@@ -24,11 +24,13 @@ const DEFAULT_USER_AGENT =
 
 const DEFAULT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
-/** Enriched lookup row — includes the analytics fields the validator
- *  doesn't need but the analytics derivations do (cmc, manaCost). */
+/** Enriched lookup row — includes fields the validator doesn't need
+ *  but the analytics + sim layers do (cmc, manaCost, P/T). */
 export interface EnrichedLookupRow extends CardLookupRow {
   cmc: number;
   manaCost: string | null;
+  power: number;
+  toughness: number;
 }
 
 interface CachedRow {
@@ -61,6 +63,8 @@ function toEnrichedRow(raw: unknown): EnrichedLookupRow | null {
     colorIdentity: n.colorIdentity,
     cmc: n.cmc,
     manaCost: n.manaCost,
+    power: n.power,
+    toughness: n.toughness,
   };
 }
 
