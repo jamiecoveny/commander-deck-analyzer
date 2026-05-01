@@ -14,12 +14,13 @@ import { z } from "zod";
 import { classify, loadClassifierOverrides } from "@/lib/classifier";
 import { CARD_CATEGORIES } from "@/lib/db/card";
 import { parseDecklist, validateDecklist } from "@/lib/decklist";
-import { derive, guessArchetype } from "@/lib/analytics";
+import { buildGamePlan, derive, guessArchetype } from "@/lib/analytics";
 import type { AnalysisResult } from "@/lib/analytics";
 import {
   lookupEnrichedCardsViaScryfall,
   type EnrichedLookupRow,
 } from "@/lib/scryfall/api";
+import { findCombos, type DetectedCombo } from "@/lib/spellbook";
 
 export const runtime = "nodejs";
 
@@ -180,7 +181,43 @@ export async function POST(request: Request): Promise<Response> {
     categoryCounts: baseAnalysis.categoryCounts,
   });
 
-  const analysis: AnalysisResult = { ...baseAnalysis, archetype };
+  // Spellbook combo detection. We feed all non-commander cards as
+  // `main` and the commander(s) separately. If Spellbook is unreachable
+  // or the schema drifts, degrade gracefully — the analytics output is
+  // still useful without combos.
+  const mainCardNames = validation.deck.cards
+    .filter((c) => !c.isCommander)
+    .map((c) => c.name);
+  let combos: DetectedCombo[] = [];
+  let comboLookupFailed = false;
+  try {
+    combos = await findCombos({
+      cardNames: mainCardNames,
+      commanderNames: validation.deck.commanders,
+    });
+  } catch (err) {
+    comboLookupFailed = true;
+    // eslint-disable-next-line no-console
+    console.warn("[analyze] spellbook lookup failed:", err);
+  }
+
+  const gamePlan = buildGamePlan({
+    commander: validation.deck.commander,
+    archetype,
+    categoryCounts: baseAnalysis.categoryCounts,
+    combos,
+    averageCmc: baseAnalysis.averageCmc,
+    landCount: baseAnalysis.landCount,
+    totalCards: baseAnalysis.totalCards,
+  });
+
+  const analysis: AnalysisResult = {
+    ...baseAnalysis,
+    archetype,
+    gamePlan,
+    combos,
+    comboLookupFailed,
+  };
   return NextResponse.json<SuccessBody>({
     ok: true,
     analysis,

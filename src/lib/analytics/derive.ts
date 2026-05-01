@@ -152,7 +152,9 @@ function roundPips(pips: ColorPips): ColorPips {
   };
 }
 
-export function derive(input: DeriveInput): Omit<AnalysisResult, "archetype"> {
+export function derive(
+  input: DeriveInput,
+): Omit<AnalysisResult, "archetype" | "gamePlan" | "combos" | "comboLookupFailed"> {
   const cards: AnalyzedCard[] = [];
   const categoryCounts = emptyCategories();
   const manaCurve = emptyCurve();

@@ -1,0 +1,86 @@
+{
+  "count": null,
+  "next": null,
+  "previous": null,
+  "results": {
+    "identity": "BU",
+    "included": [
+      {
+        "id": "1234-5678",
+        "uses": [
+          {
+            "card": {
+              "id": 100,
+              "name": "Thassa's Oracle",
+              "oracleId": "thassa-oracle-id",
+              "typeLine": "Creature — Merfolk Wizard"
+            },
+            "quantity": 1,
+            "zoneLocations": ["B"],
+            "mustBeCommander": false
+          },
+          {
+            "card": {
+              "id": 200,
+              "name": "Demonic Consultation",
+              "oracleId": "demonic-consultation-id",
+              "typeLine": "Instant"
+            },
+            "quantity": 1,
+            "zoneLocations": ["H"],
+            "mustBeCommander": false
+          }
+        ],
+        "requires": [],
+        "produces": [
+          {
+            "feature": {
+              "id": 1,
+              "name": "Win the game"
+            },
+            "quantity": 1
+          }
+        ],
+        "identity": "BU",
+        "popularity": 50000,
+        "bracketTag": "C",
+        "manaValueNeeded": 4,
+        "notablePrerequisites": "Library has at least 1 card.",
+        "status": "OK"
+      }
+    ],
+    "includedByChangingCommanders": [],
+    "almostIncluded": [
+      {
+        "id": "9999-0000",
+        "uses": [
+          {
+            "card": { "name": "Hullbreaker Horror" },
+            "quantity": 1
+          }
+        ],
+        "requires": [
+          {
+            "quantity": 1,
+            "template": {
+              "id": 46,
+              "name": "Permanent that can be cast using {C}",
+              "scryfallQuery": "mv<=1 (mana={0} or mana={1} or mana={C}) is:permanent"
+            },
+            "zoneLocations": ["H"]
+          }
+        ],
+        "produces": [
+          { "feature": { "name": "Infinite colorless mana" }, "quantity": 1 }
+        ],
+        "identity": "U",
+        "popularity": 1000,
+        "bracketTag": "E",
+        "manaValueNeeded": 0,
+        "notablePrerequisites": "",
+        "status": "OK"
+      }
+    ],
+    "almostIncludedByAddingColors": []
+  }
+}

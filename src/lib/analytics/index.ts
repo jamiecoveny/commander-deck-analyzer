@@ -4,6 +4,8 @@ export { derive } from "./derive";
 export type { DeriveInput } from "./derive";
 export { guessArchetype } from "./archetype";
 export type { ArchetypeInput } from "./archetype";
+export { buildGamePlan } from "./gameplan";
+export type { GamePlanInput } from "./gameplan";
 export type {
   AnalysisResult,
   AnalyzedCard,

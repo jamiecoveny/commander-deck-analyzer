@@ -4,6 +4,7 @@
 // consumes. Keep it serializable (no Maps, no Dates) — JSON in, JSON out.
 
 import type { CardCategory } from "@/lib/db/card";
+import type { DetectedCombo } from "@/lib/spellbook";
 
 /** CMC bucket -> count. 7+ collapses everything ≥ 7. */
 export interface ManaCurve {
@@ -70,4 +71,12 @@ export interface AnalysisResult {
   cards: AnalyzedCard[];
 
   archetype: ArchetypeGuess;
+  /** Plain-language summary of how the deck wins. 2–4 sentences. */
+  gamePlan: string;
+  /** Combos detected by Commander Spellbook. May be empty if Spellbook
+   *  returned nothing or was unreachable; see `comboLookupFailed`. */
+  combos: DetectedCombo[];
+  /** True if the Spellbook lookup failed and we degraded gracefully.
+   *  The UI can show an "unavailable" hint instead of "0 combos found". */
+  comboLookupFailed: boolean;
 }

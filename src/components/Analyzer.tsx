@@ -138,6 +138,13 @@ function ResultPanel({ analysis }: { analysis: AnalysisResult }): JSX.Element {
 
       <ArchetypeBox archetype={analysis.archetype} />
 
+      <GamePlanBox gamePlan={analysis.gamePlan} />
+
+      <CombosBox
+        combos={analysis.combos}
+        lookupFailed={analysis.comboLookupFailed}
+      />
+
       <div className="grid gap-6 sm:grid-cols-2">
         <CurveBox manaCurve={analysis.manaCurve} />
         <PipsBox pipCount={analysis.pipCount} />
@@ -149,10 +156,108 @@ function ResultPanel({ analysis }: { analysis: AnalysisResult }): JSX.Element {
 
       <footer className="text-xs text-zinc-600 space-y-1">
         <p>
-          Card data via Scryfall · Classifications by built-in rules + overrides
+          Card data via Scryfall · Combos via Commander Spellbook · Classifications by built-in rules + overrides
         </p>
       </footer>
     </section>
+  );
+}
+
+function GamePlanBox({ gamePlan }: { gamePlan: string }): JSX.Element {
+  return (
+    <section className="rounded-md border border-zinc-800 bg-zinc-950/50 p-4">
+      <p className="text-xs uppercase tracking-widest text-zinc-500 mb-2">
+        Game plan
+      </p>
+      <p className="text-sm text-zinc-200 leading-relaxed">{gamePlan}</p>
+    </section>
+  );
+}
+
+function CombosBox({
+  combos,
+  lookupFailed,
+}: {
+  combos: AnalysisResult["combos"];
+  lookupFailed: boolean;
+}): JSX.Element {
+  const inDeck = combos.filter((c) => c.completeness === "in_deck");
+  const almost = combos.filter((c) => c.completeness === "almost_in_deck");
+
+  return (
+    <section className="rounded-md border border-zinc-800 bg-zinc-950/50 p-4">
+      <p className="text-xs uppercase tracking-widest text-zinc-500 mb-3">
+        Combos detected{" "}
+        <span className="text-zinc-600">via Commander Spellbook</span>
+      </p>
+
+      {lookupFailed && (
+        <p className="text-xs text-amber-300/80 mb-3">
+          Spellbook lookup failed — combo detection unavailable for this run.
+        </p>
+      )}
+
+      {!lookupFailed && combos.length === 0 && (
+        <p className="text-xs text-zinc-500">
+          No matching combos found for this decklist.
+        </p>
+      )}
+
+      {inDeck.length > 0 && (
+        <div className="mb-4">
+          <p className="text-xs text-emerald-300 mb-2">
+            In deck — all pieces present ({inDeck.length})
+          </p>
+          <ul className="space-y-1.5">
+            {inDeck.slice(0, 8).map((c) => (
+              <ComboRow key={c.spellbookId} combo={c} />
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {almost.length > 0 && (
+        <div>
+          <p className="text-xs text-amber-300 mb-2">
+            Almost in deck — missing 1+ piece ({almost.length})
+          </p>
+          <ul className="space-y-1.5">
+            {almost.slice(0, 8).map((c) => (
+              <ComboRow key={c.spellbookId} combo={c} />
+            ))}
+          </ul>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function ComboRow({
+  combo,
+}: {
+  combo: AnalysisResult["combos"][number];
+}): JSX.Element {
+  const url = `https://commanderspellbook.com/combo/${encodeURIComponent(combo.spellbookId)}/`;
+  return (
+    <li className="text-xs">
+      <a
+        href={url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="text-zinc-200 hover:underline"
+      >
+        {combo.cards.join(" + ")}
+      </a>
+      {combo.results.length > 0 && (
+        <span className="text-zinc-500"> → {combo.results.join(" + ")}</span>
+      )}
+      {combo.missing.length > 0 && (
+        <span className="text-amber-400/80">
+          {" — needs: "}
+          {combo.missing.join(", ")}
+        </span>
+      )}
+    </li>
   );
 }
 
