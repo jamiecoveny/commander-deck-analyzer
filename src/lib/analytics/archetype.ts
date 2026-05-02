@@ -36,12 +36,33 @@ export function guessArchetype(input: ArchetypeInput): ArchetypeGuess {
     });
   }
 
-  // Combo / control — heavy interaction + tutoring.
-  if (c.counterspell + c.tutor >= 6) {
+  // Combo archetypes — three distinct flavors:
+  //   1. "Reanimator combo" — recursion + tutors + sac engines (Aristocrats lines).
+  //   2. "Combo / control" — tutors + counters (cEDH-style protect-the-line).
+  //   3. "Combo / tutor"   — tutors only, no counters (Reanimator-adjacent or
+  //                          combo decks that race instead of protect).
+  // Pick the most specific match first.
+  const hasRecursionEngine = c.recursion >= 4;
+  const hasTutorBase = c.tutor >= 3;
+  const hasCounters = c.counterspell >= 3;
+
+  if (hasRecursionEngine && hasTutorBase) {
+    sig.push({
+      archetype: "Reanimator combo",
+      reason: `${c.recursion} recursion + ${c.tutor} tutors`,
+      weight: Math.min(1, (c.recursion + c.tutor) / 14),
+    });
+  } else if (hasTutorBase && hasCounters && c.counterspell + c.tutor >= 6) {
     sig.push({
       archetype: "Combo / control",
       reason: `${c.counterspell} counters + ${c.tutor} tutors`,
       weight: Math.min(1, (c.counterspell + c.tutor) / 14),
+    });
+  } else if (hasTutorBase && c.tutor >= 5) {
+    sig.push({
+      archetype: "Combo / tutor",
+      reason: `${c.tutor} tutors, ${c.counterspell} counters`,
+      weight: Math.min(1, c.tutor / 10),
     });
   } else if (c.counterspell >= 6) {
     sig.push({
@@ -60,8 +81,8 @@ export function guessArchetype(input: ArchetypeInput): ArchetypeGuess {
     });
   }
 
-  // Reanimator — recursion-heavy.
-  if (c.recursion >= 6) {
+  // Reanimator (without combo) — recursion-heavy but light on tutors.
+  if (c.recursion >= 6 && !hasTutorBase) {
     sig.push({
       archetype: "Reanimator / recursion",
       reason: `${c.recursion} recursion effects`,

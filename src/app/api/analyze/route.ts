@@ -22,8 +22,9 @@ import {
 } from "@/lib/scryfall/api";
 import { findCombos, type DetectedCombo } from "@/lib/spellbook";
 import { fetchEdhrecCommander, type EdhrecData } from "@/lib/edhrec";
-import { buildRecommendations } from "@/lib/recommend";
+import { buildRecommendations, similarDeckRecommendations } from "@/lib/recommend";
 import { estimateBracket } from "@/lib/bracket/estimate";
+import { detectBuiltinCombos, mergeCombos } from "@/lib/combos/builtin";
 
 export const runtime = "nodejs";
 
@@ -216,6 +217,24 @@ export async function POST(request: Request): Promise<Response> {
     console.warn("[analyze] edhrec fetch failed:", edhrecResult.reason);
   }
 
+  // Built-in combo detection — supplements Spellbook with hand-curated
+  // commander combos. Catches Meren + Phyrexian Altar + persist, Mike/
+  // Trike, Yawgmoth lines, etc. that Spellbook sometimes misses.
+  const builtinCombos = detectBuiltinCombos({
+    deckCardNames: validation.deck.cards.map((c) => c.name),
+    commanderNames: validation.deck.commanders,
+  });
+  combos = mergeCombos(combos, builtinCombos);
+
+  // Similar-deck cross-reference recommendations: pull EDHrec for the
+  // commander's `similar` peers, find cards popular across multiple
+  // similar commanders that you don't run.
+  const similarRecs = await similarDeckRecommendations({
+    ownedCardNames: validation.deck.cards.map((c) => c.name),
+    commanderEdhrec: edhrec,
+    excludeNames: new Set(validation.deck.commanders),
+  });
+
   const gamePlan = buildGamePlan({
     commander: validation.deck.commander,
     archetype,
@@ -230,6 +249,7 @@ export async function POST(request: Request): Promise<Response> {
     deck: validation.deck,
     edhrec,
     combos,
+    similarDeckRecs: similarRecs,
   });
 
   const bracketEstimate = await estimateBracket({

@@ -27,6 +27,8 @@ export interface BuildRecommendationsInput {
   validationErrors?: DecklistError[];
   edhrec: EdhrecData | null;
   combos: readonly DetectedCombo[];
+  /** Pre-computed cross-reference recs from similar-deck analysis. */
+  similarDeckRecs?: readonly Recommendation[];
 }
 
 export function buildRecommendations(
@@ -81,6 +83,22 @@ export function buildRecommendations(
           inclusionPct: card.inclusionPct,
         });
       }
+    }
+  }
+
+  // ---- Tier 2 + 3: Similar-deck cross-reference ----
+  // Pre-computed by the route (parallel EDHrec fetches against the
+  // commander's `similar` peers). De-dupe against existing recs by
+  // addCard so we don't double up on Sol Ring etc.
+  if (input.similarDeckRecs) {
+    const existingAdds = new Set(
+      out.map((r) => r.addCard).filter((n): n is string => !!n),
+    );
+    for (const r of input.similarDeckRecs) {
+      if (r.addCard && existingAdds.has(r.addCard)) continue;
+      if (r.addCard && ownedNames.has(r.addCard)) continue;
+      out.push(r);
+      if (r.addCard) existingAdds.add(r.addCard);
     }
   }
 

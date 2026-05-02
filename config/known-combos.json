@@ -1,0 +1,364 @@
+{
+  "_meta": {
+    "purpose": "Hand-curated commander combo database. Supplements (does not replace) Commander Spellbook's API — Spellbook tracks the canonical 2-card lines but misses some 3-card setups, persist-loops, and commander-specific synergies.",
+    "policy": [
+      "Each entry lists `pieces` = required cards in deck. Optional `commanderRequired` if the line only works with that commander in play.",
+      "All-pieces present in the deck = `in_deck`. All-but-one = `almost_in_deck` with the missing piece called out.",
+      "`result` is short factual text — what the combo produces. Avoid copying Spellbook's step-by-step descriptions verbatim.",
+      "Add new entries here when users surface specific commander combos the analyzer misses."
+    ]
+  },
+  "combos": [
+    {
+      "id": "thoracle-consult",
+      "name": "Thassa's Oracle + Demonic Consultation",
+      "pieces": ["Thassa's Oracle", "Demonic Consultation"],
+      "result": "Win the game (exile library, then Thoracle ETB)",
+      "category": "wincon"
+    },
+    {
+      "id": "thoracle-tainted-pact",
+      "name": "Thassa's Oracle + Tainted Pact",
+      "pieces": ["Thassa's Oracle", "Tainted Pact"],
+      "result": "Win the game (exile library, then Thoracle ETB)",
+      "category": "wincon"
+    },
+    {
+      "id": "thoracle-jace",
+      "name": "Thassa's Oracle + Jace, Wielder of Mysteries",
+      "pieces": ["Thassa's Oracle", "Jace, Wielder of Mysteries"],
+      "result": "Library-out wincon redundancy",
+      "category": "wincon"
+    },
+    {
+      "id": "mike-trike",
+      "name": "Mikaeus, the Unhallowed + Triskelion",
+      "pieces": ["Mikaeus, the Unhallowed", "Triskelion"],
+      "result": "Infinite damage to any target",
+      "category": "wincon"
+    },
+    {
+      "id": "mike-ballista",
+      "name": "Mikaeus, the Unhallowed + Walking Ballista",
+      "pieces": ["Mikaeus, the Unhallowed", "Walking Ballista"],
+      "result": "Infinite damage (with sac outlet, see Phyrexian Altar combo)",
+      "category": "wincon"
+    },
+    {
+      "id": "kiki-conscripts",
+      "name": "Kiki-Jiki, Mirror Breaker + Zealous Conscripts",
+      "pieces": ["Kiki-Jiki, Mirror Breaker", "Zealous Conscripts"],
+      "result": "Infinite hasty creatures",
+      "category": "wincon"
+    },
+    {
+      "id": "kiki-pestermite",
+      "name": "Kiki-Jiki, Mirror Breaker + Pestermite",
+      "pieces": ["Kiki-Jiki, Mirror Breaker", "Pestermite"],
+      "result": "Infinite hasty Pestermites; tap-down loop",
+      "category": "wincon"
+    },
+    {
+      "id": "splinter-twin-pestermite",
+      "name": "Splinter Twin + Pestermite",
+      "pieces": ["Splinter Twin", "Pestermite"],
+      "result": "Infinite hasty creatures",
+      "category": "wincon"
+    },
+    {
+      "id": "heliod-ballista",
+      "name": "Heliod, Sun-Crowned + Walking Ballista",
+      "pieces": ["Heliod, Sun-Crowned", "Walking Ballista"],
+      "result": "Infinite damage with lifelink counters",
+      "category": "wincon"
+    },
+    {
+      "id": "exquisite-blood-sanguine-bond",
+      "name": "Exquisite Blood + Sanguine Bond",
+      "pieces": ["Exquisite Blood", "Sanguine Bond"],
+      "result": "Infinite drain — first life-loss wins the game",
+      "category": "wincon"
+    },
+    {
+      "id": "exquisite-blood-vito",
+      "name": "Exquisite Blood + Vito, Thorn of the Dusk Rose",
+      "pieces": ["Exquisite Blood", "Vito, Thorn of the Dusk Rose"],
+      "result": "Infinite drain — same engine as Sanguine Bond version",
+      "category": "wincon"
+    },
+    {
+      "id": "isochron-dramatic",
+      "name": "Isochron Scepter + Dramatic Reversal",
+      "pieces": ["Isochron Scepter", "Dramatic Reversal"],
+      "result": "Infinite mana from non-land sources (rocks, dorks)",
+      "category": "infinite_mana",
+      "synergyHint": "needs >=3 mana from non-land sources for net positive mana"
+    },
+    {
+      "id": "deadeye-peregrine",
+      "name": "Deadeye Navigator + Peregrine Drake",
+      "pieces": ["Deadeye Navigator", "Peregrine Drake"],
+      "result": "Infinite blue/blink mana",
+      "category": "infinite_mana"
+    },
+    {
+      "id": "palinchron-ramp",
+      "name": "Palinchron + any way to untap (Phantasmal Image, Deadeye)",
+      "pieces": ["Palinchron"],
+      "almostPieces": ["Phantasmal Image", "Deadeye Navigator", "Stolen by the Fae"],
+      "result": "Infinite mana with untap-target loops",
+      "category": "infinite_mana"
+    },
+    {
+      "id": "worldgorger-animate",
+      "name": "Worldgorger Dragon + Animate Dead (or Necromancy / Dance of the Dead)",
+      "pieces": ["Worldgorger Dragon", "Animate Dead"],
+      "result": "Infinite mana, infinite ETB triggers",
+      "category": "infinite_mana"
+    },
+    {
+      "id": "worldgorger-necromancy",
+      "name": "Worldgorger Dragon + Necromancy",
+      "pieces": ["Worldgorger Dragon", "Necromancy"],
+      "result": "Infinite mana, infinite ETB triggers",
+      "category": "infinite_mana"
+    },
+    {
+      "id": "godo-helm",
+      "name": "Godo, Bandit Warlord + Helm of the Host",
+      "pieces": ["Godo, Bandit Warlord", "Helm of the Host"],
+      "result": "Infinite combat steps; lethal commander damage",
+      "category": "wincon"
+    },
+    {
+      "id": "phyrexian-altar-persist",
+      "name": "Phyrexian Altar + persist creature + Aristocrats payoff",
+      "pieces": ["Phyrexian Altar"],
+      "almostPieces": [
+        "Reassembling Skeleton",
+        "Putrid Goblin",
+        "Murderous Redcap",
+        "Woodfall Primus"
+      ],
+      "result": "Infinite sac triggers (with payoff like Zulaport Cutthroat = win)",
+      "category": "death_loop",
+      "commanderHints": ["Meren of Clan Nel Toth", "Korvold, Fae-Cursed King", "Karador, Ghost Chieftain"]
+    },
+    {
+      "id": "ashnod-altar-persist",
+      "name": "Ashnod's Altar + persist creature + Aristocrats payoff",
+      "pieces": ["Ashnod's Altar"],
+      "almostPieces": [
+        "Reassembling Skeleton",
+        "Putrid Goblin",
+        "Murderous Redcap"
+      ],
+      "result": "Infinite mana + death triggers",
+      "category": "death_loop",
+      "commanderHints": ["Meren of Clan Nel Toth", "Korvold, Fae-Cursed King"]
+    },
+    {
+      "id": "meren-altar-skeleton",
+      "name": "Meren of Clan Nel Toth + Phyrexian Altar + Reassembling Skeleton",
+      "pieces": [
+        "Meren of Clan Nel Toth",
+        "Phyrexian Altar",
+        "Reassembling Skeleton"
+      ],
+      "result": "Infinite sac/return loop on Meren's experience counters",
+      "category": "death_loop",
+      "commanderRequired": "Meren of Clan Nel Toth"
+    },
+    {
+      "id": "yawgmoth-undying",
+      "name": "Yawgmoth, Thran Physician + 2 undying creatures",
+      "pieces": ["Yawgmoth, Thran Physician"],
+      "almostPieces": [
+        "Geralf's Messenger",
+        "Young Wolf",
+        "Strangleroot Geist",
+        "Butcher Ghoul"
+      ],
+      "result": "Infinite drain on Yawgmoth's death-trigger draws",
+      "category": "death_loop",
+      "commanderHints": ["Yawgmoth, Thran Physician"]
+    },
+    {
+      "id": "yawgmoth-mikaeus",
+      "name": "Yawgmoth, Thran Physician + Mikaeus, the Unhallowed + any other creature",
+      "pieces": ["Yawgmoth, Thran Physician", "Mikaeus, the Unhallowed"],
+      "result": "Infinite drain via Mike's undying granted to a sac target",
+      "category": "death_loop"
+    },
+    {
+      "id": "kalonian-undying",
+      "name": "Mikaeus, the Unhallowed + sac outlet + any creature without +1/+1 counters",
+      "pieces": ["Mikaeus, the Unhallowed"],
+      "almostPieces": [
+        "Phyrexian Altar",
+        "Ashnod's Altar",
+        "Viscera Seer",
+        "Carrion Feeder"
+      ],
+      "result": "Infinite sacrifices via undying",
+      "category": "death_loop"
+    },
+    {
+      "id": "krark-thumb-everything",
+      "name": "Krark, the Thumbless + Sakashima of a Thousand Faces",
+      "pieces": ["Krark, the Thumbless", "Sakashima of a Thousand Faces"],
+      "result": "Infinite spell copies on coinflip wins (storm)",
+      "category": "wincon",
+      "commanderRequired": "Krark, the Thumbless"
+    },
+    {
+      "id": "scion-recursion",
+      "name": "The Scarab God + repeated zombie tokens",
+      "pieces": ["The Scarab God"],
+      "almostPieces": ["Phyrexian Altar", "Ashnod's Altar", "Gravecrawler"],
+      "result": "Infinite scry and creature copies",
+      "category": "value_loop",
+      "commanderHints": ["The Scarab God"]
+    },
+    {
+      "id": "korvold-altar",
+      "name": "Korvold, Fae-Cursed King + Phyrexian Altar + persist creature",
+      "pieces": ["Korvold, Fae-Cursed King", "Phyrexian Altar"],
+      "almostPieces": ["Reassembling Skeleton", "Putrid Goblin"],
+      "result": "Infinite draw and mana",
+      "category": "death_loop",
+      "commanderRequired": "Korvold, Fae-Cursed King"
+    },
+    {
+      "id": "thassa-deepeyes",
+      "name": "Thassa, Deep-Dwelling + ETB creature value",
+      "pieces": ["Thassa, Deep-Dwelling"],
+      "almostPieces": ["Mulldrifter", "Eternal Witness", "Solemn Simulacrum"],
+      "result": "Repeated ETB triggers each end step",
+      "category": "value_loop",
+      "commanderHints": ["Thassa, Deep-Dwelling"]
+    },
+    {
+      "id": "approach-second-sun",
+      "name": "Approach of the Second Sun (cast twice)",
+      "pieces": ["Approach of the Second Sun"],
+      "result": "Wins the game on second cast (alt-win)",
+      "category": "wincon"
+    },
+    {
+      "id": "doomsday-thoracle",
+      "name": "Doomsday + Thassa's Oracle",
+      "pieces": ["Doomsday", "Thassa's Oracle"],
+      "result": "Doomsday pile sets up next-turn Thoracle win",
+      "category": "wincon"
+    },
+    {
+      "id": "underworld-breach-storm",
+      "name": "Underworld Breach + Brain Freeze + Lion's Eye Diamond",
+      "pieces": ["Underworld Breach", "Brain Freeze", "Lion's Eye Diamond"],
+      "result": "Mill all opponents (storm)",
+      "category": "wincon"
+    },
+    {
+      "id": "necropotence-shenanigans",
+      "name": "Necropotence + repeatable life gain",
+      "pieces": ["Necropotence"],
+      "almostPieces": ["Children of Korlis", "Soul's Attendant", "Soul Warden"],
+      "result": "Effectively draw your deck",
+      "category": "draw_engine"
+    },
+    {
+      "id": "food-chain-creature",
+      "name": "Food Chain + Eternal-cast creature",
+      "pieces": ["Food Chain"],
+      "almostPieces": [
+        "Squee, the Immortal",
+        "Misthollow Griffin",
+        "Eternal Scourge"
+      ],
+      "result": "Infinite creature mana",
+      "category": "infinite_mana"
+    },
+    {
+      "id": "dramatic-rev-paradox",
+      "name": "Paradox Engine effects (replaced by Isochron+Reversal in modern lists)",
+      "pieces": ["Isochron Scepter", "Dramatic Reversal"],
+      "almostPieces": ["Sensei's Divining Top", "Aetherflux Reservoir"],
+      "result": "Infinite mana into draw / win pieces",
+      "category": "infinite_mana"
+    },
+    {
+      "id": "krenko-tribal",
+      "name": "Krenko, Mob Boss + sac outlet for haste / untap effects",
+      "pieces": ["Krenko, Mob Boss"],
+      "almostPieces": [
+        "Thornbite Staff",
+        "Skirk Prospector",
+        "Goblin Bombardment"
+      ],
+      "result": "Infinite goblin tokens or burst damage",
+      "category": "value_loop",
+      "commanderHints": ["Krenko, Mob Boss"]
+    },
+    {
+      "id": "atraxa-counters",
+      "name": "Atraxa, Praetors' Voice + Inexorable Tide",
+      "pieces": ["Atraxa, Praetors' Voice", "Inexorable Tide"],
+      "result": "Compounding proliferate triggers",
+      "category": "value_loop"
+    },
+    {
+      "id": "edric-unblockable",
+      "name": "Edric, Spymaster of Trest + unblockable creatures",
+      "pieces": ["Edric, Spymaster of Trest"],
+      "almostPieces": [
+        "Invisible Stalker",
+        "Slither Blade",
+        "Triton Shorestalker"
+      ],
+      "result": "Massive card draw on combat damage",
+      "category": "draw_engine",
+      "commanderRequired": "Edric, Spymaster of Trest"
+    },
+    {
+      "id": "muldrotha-recursion",
+      "name": "Muldrotha + value permanents in graveyard",
+      "pieces": ["Muldrotha, the Gravetide"],
+      "almostPieces": [
+        "Eternal Witness",
+        "Sakura-Tribe Elder",
+        "Ramunap Excavator"
+      ],
+      "result": "Repeated ramp + value from graveyard each turn",
+      "category": "value_loop",
+      "commanderHints": ["Muldrotha, the Gravetide"]
+    },
+    {
+      "id": "lab-man-cantrip",
+      "name": "Laboratory Maniac + library-emptying effect",
+      "pieces": ["Laboratory Maniac"],
+      "almostPieces": [
+        "Demonic Consultation",
+        "Tainted Pact",
+        "Doomsday"
+      ],
+      "result": "Win on next draw with empty library",
+      "category": "wincon"
+    },
+    {
+      "id": "consecrated-rhystic",
+      "name": "Consecrated Sphinx + Rhystic Study (just very strong; not infinite)",
+      "pieces": ["Consecrated Sphinx", "Rhystic Study"],
+      "result": "Heavy card-advantage stack (not infinite — flagged as engine)",
+      "category": "draw_engine"
+    },
+    {
+      "id": "dockside-temur",
+      "name": "Dockside Extortionist + repeatable bounce",
+      "pieces": ["Dockside Extortionist"],
+      "almostPieces": ["Cloudstone Curio", "Temur Sabertooth"],
+      "result": "Infinite Treasure (when ≥2 artifacts/enchantments on opponents)",
+      "category": "infinite_mana"
+    }
+  ]
+}
