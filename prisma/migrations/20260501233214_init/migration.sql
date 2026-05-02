@@ -1,13 +1,18 @@
+-- CreateSchema
+CREATE SCHEMA IF NOT EXISTS "public";
+
 -- CreateTable
 CREATE TABLE "User" (
-    "id" TEXT NOT NULL PRIMARY KEY,
+    "id" TEXT NOT NULL,
     "email" TEXT,
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "User_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
 CREATE TABLE "Deck" (
-    "id" TEXT NOT NULL PRIMARY KEY,
+    "id" TEXT NOT NULL,
     "userId" TEXT,
     "name" TEXT NOT NULL,
     "commander" TEXT NOT NULL,
@@ -16,41 +21,45 @@ CREATE TABLE "Deck" (
     "bracket" INTEGER,
     "archetype" TEXT,
     "sourceUrl" TEXT,
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" DATETIME NOT NULL,
-    CONSTRAINT "Deck_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE SET NULL ON UPDATE CASCADE
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "Deck_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
 CREATE TABLE "DeckCard" (
-    "id" TEXT NOT NULL PRIMARY KEY,
+    "id" TEXT NOT NULL,
     "deckId" TEXT NOT NULL,
     "cardName" TEXT NOT NULL,
     "oracleId" TEXT NOT NULL,
     "quantity" INTEGER NOT NULL DEFAULT 1,
     "isCommander" BOOLEAN NOT NULL DEFAULT false,
-    CONSTRAINT "DeckCard_deckId_fkey" FOREIGN KEY ("deckId") REFERENCES "Deck" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+
+    CONSTRAINT "DeckCard_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
 CREATE TABLE "Card" (
-    "oracleId" TEXT NOT NULL PRIMARY KEY,
+    "oracleId" TEXT NOT NULL,
     "name" TEXT NOT NULL,
     "manaCost" TEXT,
-    "cmc" REAL NOT NULL,
+    "cmc" DOUBLE PRECISION NOT NULL,
     "typeLine" TEXT NOT NULL,
     "oracleText" TEXT NOT NULL,
     "colorIdentity" TEXT NOT NULL,
     "categoriesJson" TEXT NOT NULL DEFAULT '[]',
     "edhrecRank" INTEGER,
-    "priceUsd" REAL,
-    "priceCad" REAL,
-    "priceUpdatedAt" DATETIME
+    "priceUsd" DOUBLE PRECISION,
+    "priceCad" DOUBLE PRECISION,
+    "priceUpdatedAt" TIMESTAMP(3),
+
+    CONSTRAINT "Card_pkey" PRIMARY KEY ("oracleId")
 );
 
 -- CreateTable
 CREATE TABLE "Analysis" (
-    "id" TEXT NOT NULL PRIMARY KEY,
+    "id" TEXT NOT NULL,
     "deckId" TEXT NOT NULL,
     "bracketEstimate" INTEGER NOT NULL,
     "rampCount" INTEGER NOT NULL,
@@ -58,22 +67,24 @@ CREATE TABLE "Analysis" (
     "removalCount" INTEGER NOT NULL,
     "wipesCount" INTEGER NOT NULL,
     "countersCount" INTEGER NOT NULL,
-    "avgCmc" REAL NOT NULL,
+    "avgCmc" DOUBLE PRECISION NOT NULL,
     "combos" JSONB NOT NULL,
     "recommendations" JSONB NOT NULL,
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT "Analysis_deckId_fkey" FOREIGN KEY ("deckId") REFERENCES "Deck" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "Analysis_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
 CREATE TABLE "Playtest" (
-    "id" TEXT NOT NULL PRIMARY KEY,
+    "id" TEXT NOT NULL,
     "deckId" TEXT NOT NULL,
     "games" INTEGER NOT NULL,
     "opponents" JSONB NOT NULL,
     "results" JSONB NOT NULL,
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT "Playtest_deckId_fkey" FOREIGN KEY ("deckId") REFERENCES "Deck" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "Playtest_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateIndex
@@ -99,3 +110,15 @@ CREATE INDEX "Analysis_deckId_idx" ON "Analysis"("deckId");
 
 -- CreateIndex
 CREATE INDEX "Playtest_deckId_idx" ON "Playtest"("deckId");
+
+-- AddForeignKey
+ALTER TABLE "Deck" ADD CONSTRAINT "Deck_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "DeckCard" ADD CONSTRAINT "DeckCard_deckId_fkey" FOREIGN KEY ("deckId") REFERENCES "Deck"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Analysis" ADD CONSTRAINT "Analysis_deckId_fkey" FOREIGN KEY ("deckId") REFERENCES "Deck"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Playtest" ADD CONSTRAINT "Playtest_deckId_fkey" FOREIGN KEY ("deckId") REFERENCES "Deck"("id") ON DELETE CASCADE ON UPDATE CASCADE;

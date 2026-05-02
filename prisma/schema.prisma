@@ -15,11 +15,11 @@ generator client {
 }
 
 datasource db {
-  // Local dev uses SQLite (zero-setup). For production swap `provider`
-  // to "postgresql"; the only Postgres-only column is the JSON columns
-  // on Analysis / Playtest, which Prisma serializes to TEXT on SQLite.
-  // See docs/DEV_DB.md.
-  provider = "sqlite"
+  // Production target (Railway). Local dev now points at Railway's
+  // Postgres too — see docs/DEV_DB.md. The previous SQLite migration
+  // was archived; if you need to iterate on the schema seriously
+  // without touching prod, spin up a local Docker Postgres.
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
