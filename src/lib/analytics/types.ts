@@ -86,4 +86,9 @@ export interface AnalysisResult {
   edhrec: EdhrecData | null;
   /** Tiered upgrade recommendations. */
   recommendations: Recommendation[];
+  /** Estimated WotC bracket (1–4 — cEDH is user-claimed, never auto-tagged). */
+  bracketEstimate: {
+    bracket: 1 | 2 | 3 | 4;
+    reasons: string[];
+  };
 }

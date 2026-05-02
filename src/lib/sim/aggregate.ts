@@ -12,13 +12,16 @@ import type {
 
 const DEFAULT_NOTES = [
   "Heuristic simulator — coarse approximation, not a deterministic match prediction.",
-  "Color screws are not modeled; lands are treated as colorless mana.",
-  "Combat: damage = max(0, attacker_power - 0.5 * defender_power); blockers are not chosen individually.",
-  "Reactive interaction (counters / spot removal) fires probabilistically — politics, not optimal play.",
+  "Color-aware mana base (lands/rocks track which colors they produce). Mulligans favor castable hands.",
+  "Per-creature combat: defenders block half their creatures (biggest vs smallest); creatures die when power >= toughness.",
+  "Death triggers (Aristocrats), ETB triggers (Eternal Witness, Reclamation Sage), and sac outlets (Phyrexian Altar) all fire.",
+  "Bracket-aware AI: cEDH players counter ~95% of wincons, B1 players ~25%. Mulligan strictness scales with bracket.",
+  "Still simplified vs real MTG: no instant-speed responses on opponents' turns, no hexproof / indestructible, color-screw is rare even when colors are explicit.",
 ];
 
 export interface SimulateOptions {
   userDeck: CardProfile[];
+  userBracket?: 1 | 2 | 3 | 4 | 5;
   opponents: PlayerArchetype[];
   games: number;
   seed?: number;
@@ -35,6 +38,7 @@ export function simulate(opts: SimulateOptions): SimulateResponse {
     games.push(
       runGame({
         userDeck: opts.userDeck,
+        userBracket: opts.userBracket,
         opponents: opts.opponents,
         rng,
         maxTurns: opts.maxTurns ?? 15,

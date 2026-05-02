@@ -1,36 +1,71 @@
 // Heuristic decisions: mulligan, hand priority, combat targeting,
 // reactive interaction. All pure functions over the state — the engine
 // composes them.
+//
+// Bracket-aware (Phase B+C): every function takes a BracketProfile so
+// behavior scales with the player's power level — cEDH players counter
+// 95% of wincons, B1 players keep funkier hands.
 
-import type { CardProfile, PlayerState } from "./types";
+import type { BracketProfile, CardProfile, PlayerState } from "./types";
 
 /**
- * London-mulligan keep heuristic. Returns true if we keep the hand at
- * the current mulligan depth. We allow at most one mulligan in Phase 1.
+ * London-mulligan keep heuristic with bracket-aware strictness.
  *
- * Rules of thumb (Frank Karsten's heuristic, paraphrased):
- *  - Need ≥ 2 lands and ≤ 5 lands.
- *  - At least one of: ramp piece, draw engine, or low-CMC threat.
+ * Base rules (Karsten-style):
+ *  - 2–5 lands.
+ *  - At least one of: ramp piece, draw engine, low-CMC threat.
+ *
+ * Bracket strictness multiplier > 1 adds:
+ *  - At higher brackets, prefer hands that can act on T1–T2 (≥1 spell
+ *    castable with starting lands).
+ *  - cEDH: must have a tutor or wincon piece by hand.
  */
-export function shouldKeepHand(hand: readonly CardProfile[], depth: number): boolean {
-  // Hard cap: stop mulliganing after 1 mull (effective hand 6).
-  if (depth >= 1) return true;
+export function shouldKeepHand(
+  hand: readonly CardProfile[],
+  depth: number,
+  profile: BracketProfile,
+): boolean {
+  // Hard cap on consecutive mulligans — 1 default, 2 for stricter brackets.
+  const maxDepth = profile.mulliganStrictness >= 1.3 ? 2 : 1;
+  if (depth >= maxDepth) return true;
+
   const lands = hand.filter((c) => c.isLand).length;
   if (lands < 2 || lands > 5) return false;
-  const hasRamp = hand.some(
-    (c) => c.manaPerTurn > 0 || c.rampsLands > 0,
-  );
+
+  const hasRamp = hand.some((c) => c.manaPerTurn > 0 || c.rampsLands > 0);
   const hasDraw = hand.some((c) => c.drawsCards > 0);
   const hasCheapThreat = hand.some(
     (c) => !c.isLand && c.cmc <= 3 && (c.isCreature || c.isAltWincon || c.killsCreatures > 0),
   );
-  return hasRamp || hasDraw || hasCheapThreat;
+  const baseKeep = hasRamp || hasDraw || hasCheapThreat;
+  if (!baseKeep) return false;
+
+  // Stricter brackets: also require at least one castable T1–T2 spell.
+  if (profile.mulliganStrictness >= 1.2) {
+    const earlyAction = hand.some(
+      (c) => !c.isLand && c.cmc <= 2 && lands >= c.cmc,
+    );
+    if (!earlyAction) return false;
+  }
+
+  // cEDH: must have a tutor or wincon piece in hand.
+  if (profile.mulliganStrictness >= 1.4) {
+    const hasComboPiece = hand.some(
+      (c) => c.isAltWincon || c.categories.includes("tutor"),
+    );
+    if (!hasComboPiece) return false;
+  }
+
+  return true;
 }
 
 /**
  * Total mana available to the active player this turn. Lands contribute
- * 1 each (we don't model color screws — see notes in the engine).
- * Mana rocks/dorks contribute their `manaPerTurn`.
+ * 1 each (color tracking happens inside ManaPool). Mana rocks/dorks
+ * contribute their `manaPerTurn`.
+ *
+ * NOTE: this is the legacy "total mana" view used only by tests and the
+ * mulligan check — the engine pays via ManaPool directly.
  */
 export function availableMana(player: PlayerState): number {
   let total = player.lands.length;
@@ -40,46 +75,70 @@ export function availableMana(player: PlayerState): number {
 
 /**
  * Sort the hand by play priority. Higher priority comes first.
- * Phase: "early" (turns 1–4) prefers ramp + cheap interaction; "late"
- * prefers wincons + finishers + counters held up.
+ * Bracket-aware: combo decks weight wincons + tutors higher; combat
+ * decks weight threats; stax decks weight hate pieces.
  */
 export function sortByPriority(
   hand: readonly CardProfile[],
   turn: number,
+  profile: BracketProfile,
 ): CardProfile[] {
   const out = hand.slice();
   const phase = turn <= 4 ? "early" : "late";
-  out.sort((a, b) => priorityScore(b, phase) - priorityScore(a, phase));
+  out.sort(
+    (a, b) =>
+      priorityScore(b, phase, profile, turn) -
+      priorityScore(a, phase, profile, turn),
+  );
   return out;
 }
 
 type Phase = "early" | "late";
 
-function priorityScore(c: CardProfile, phase: Phase): number {
-  if (c.isLand) return 0; // lands are played separately, not from spell loop
+function priorityScore(
+  c: CardProfile,
+  phase: Phase,
+  profile: BracketProfile,
+  turn: number,
+): number {
+  if (c.isLand) return 0;
   let s = 0;
+
+  // Bracket bias: combo/stax/combat preference.
+  const bias = profile.winMix;
+
   if (phase === "early") {
+    // Ramp + cheap interaction stays on top early.
     if (c.manaPerTurn > 0 || c.rampsLands > 0) s += 100;
     if (c.drawsCards > 0) s += 60;
     if (c.cmc <= 2) s += 30;
     if (c.killsCreatures > 0 && c.killsCreatures < 99) s += 20;
+    // Combo decks tutor + race wincons earlier.
+    if (c.isAltWincon) s += 80 * bias.combo;
+    if (c.categories.includes("tutor")) s += 60 * bias.combo;
   } else {
-    if (c.isAltWincon) s += 200;
+    if (c.isAltWincon) s += 200 * bias.combo + 100;
+    if (c.categories.includes("tutor")) s += 80 * bias.combo;
     if (c.killsCreatures >= 99) s += 90;
     if (c.killsCreatures > 0) s += 50;
     if (c.drawsCards > 0) s += 40;
-    if (c.isCreature && c.power >= 4) s += 60;
+    // Combat decks favor threats late.
+    if (c.isCreature && c.power >= 4) s += 60 + 40 * bias.combat;
     if (c.manaPerTurn > 0) s += 20;
+    // Stax decks weight hate pieces in mid-late game.
+    if (c.categories.includes("stax")) s += 80 * bias.stax;
   }
+
   // Penalize high CMC slightly so we don't sit on uncastables.
   s -= c.cmc;
+  // Late-game: turn pressure makes us prefer the highest-impact card.
+  if (turn > profile.expectedEndTurn) s += c.cmc; // counteract the penalty
   return s;
 }
 
 /**
- * Pick a land to play this turn. Prefers a basic / generic land over
- * something we'd want to crack later. Lands are interchangeable in our
- * coarse model, so this is just "first one we find."
+ * Pick a land to play this turn. Prefers a land that adds the colors
+ * we don't yet have access to over a duplicate basic.
  */
 export function pickLandToPlay(hand: readonly CardProfile[]): number {
   for (let i = 0; i < hand.length; i += 1) {
@@ -116,30 +175,25 @@ function totalBoardPower(p: PlayerState): number {
 }
 
 /**
- * Whether a defender wants to react (counter / removal) to an opponent's
- * threat. Probabilistic — politics. Returns the index of the responder's
- * card to spend, or -1 if no react.
+ * Probabilistic counter / removal reaction. Bracket-aware: cEDH players
+ * react to wincons at 95%, B1 players at 25%.
+ *
+ * Returns the index of the card to spend, or -1 if no react.
  */
 export function pickInteraction(
   defender: PlayerState,
   threatPower: number,
   threatIsWincon: boolean,
+  profile: BracketProfile,
   rng: () => number,
 ): number {
-  // We can only counter cast spells or remove creatures from hand
-  // (counter) / from battlefield (removal happens on cast resolution
-  // via removal cards in hand — we model this as "spend a removal
-  // from hand to neutralize the just-cast threat").
   if (threatIsWincon) {
-    // 70% reaction rate for wincon — table-saves matter.
-    if (rng() > 0.7) return -1;
+    if (rng() > profile.reactToWinconProb) return -1;
   } else if (threatPower >= 6) {
-    if (rng() > 0.5) return -1;
+    if (rng() > profile.reactToThreatProb) return -1;
   } else {
-    // Don't burn interaction on small threats.
     return -1;
   }
-  // Prefer counter (preempts) > spot removal.
   for (let i = 0; i < defender.hand.length; i += 1) {
     if (defender.hand[i]?.isCounter) return i;
   }

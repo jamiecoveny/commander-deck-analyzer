@@ -1,0 +1,69 @@
+{
+  "_meta": {
+    "purpose": "Drives the simulator AI's behavior per WotC Commander bracket. Triangulated from the WotC bracket beta announcement, the Command Zone 300-game survey (avg 10.29 turns at B2-3), and cEDH community statistics (avg winning turn 2-4). Numbers are estimates — adjust as you observe sim behavior.",
+    "sources": [
+      "https://magic.wizards.com/en/news/announcements/introducing-commander-brackets-beta",
+      "https://www.mtgsalvation.com/forums/the-game/commander-edh/800296-edh-stats-via-command-zone",
+      "https://edh.fandom.com/wiki/Competitive_EDH"
+    ],
+    "policy": [
+      "winMix is a relative-weight bias for hand-priority. Higher combo weight = AI tutors and casts wincons earlier. Higher combat weight = AI develops board and attacks.",
+      "reactToWinconProb / reactToThreatProb gate `pickInteraction`. cEDH counter-wars are ~95% reactive on key spells.",
+      "mulliganStrictness > 1 adds extra rejection rules; < 1 loosens them.",
+      "expectedEndTurn is the bracket's typical game length; affects AI's 'is it time to push?' decisions.",
+      "maxTurns is the engine's hard cap for a game at this bracket — sims past this declare a stalemate."
+    ]
+  },
+  "profiles": [
+    {
+      "bracket": 1,
+      "name": "Exhibition",
+      "expectedEndTurn": 13,
+      "winMix": { "combat": 0.80, "combo": 0.05, "stax": 0.00, "other": 0.15 },
+      "reactToWinconProb": 0.25,
+      "reactToThreatProb": 0.20,
+      "mulliganStrictness": 0.7,
+      "maxTurns": 18
+    },
+    {
+      "bracket": 2,
+      "name": "Core",
+      "expectedEndTurn": 10,
+      "winMix": { "combat": 0.65, "combo": 0.10, "stax": 0.05, "other": 0.20 },
+      "reactToWinconProb": 0.45,
+      "reactToThreatProb": 0.40,
+      "mulliganStrictness": 1.0,
+      "maxTurns": 15
+    },
+    {
+      "bracket": 3,
+      "name": "Upgraded",
+      "expectedEndTurn": 8,
+      "winMix": { "combat": 0.50, "combo": 0.25, "stax": 0.10, "other": 0.15 },
+      "reactToWinconProb": 0.65,
+      "reactToThreatProb": 0.55,
+      "mulliganStrictness": 1.0,
+      "maxTurns": 13
+    },
+    {
+      "bracket": 4,
+      "name": "Optimized",
+      "expectedEndTurn": 5,
+      "winMix": { "combat": 0.30, "combo": 0.50, "stax": 0.15, "other": 0.05 },
+      "reactToWinconProb": 0.85,
+      "reactToThreatProb": 0.70,
+      "mulliganStrictness": 1.3,
+      "maxTurns": 10
+    },
+    {
+      "bracket": 5,
+      "name": "cEDH",
+      "expectedEndTurn": 4,
+      "winMix": { "combat": 0.10, "combo": 0.75, "stax": 0.10, "other": 0.05 },
+      "reactToWinconProb": 0.95,
+      "reactToThreatProb": 0.85,
+      "mulliganStrictness": 1.5,
+      "maxTurns": 8
+    }
+  ]
+}

@@ -3,29 +3,40 @@
 // Honest about what this is: a coarse approximation, not a real MTG
 // rules engine. We model:
 //   - Card draw, mulligan (London, 1 mull cap), land drops
-//   - Mana production (lands + rocks + dorks; treated as colorless)
+//   - Color-aware mana pool (lands + rocks; colored pip allocation)
 //   - Casting from hand by priority (ramp > cheap > threats > wincons)
+//     with bracket-aware win-mix bias from config/bracket-profiles.json
 //   - Reactive interaction: counters / spot removal at probabilistic
-//     rates ('politics')
-//   - Combat: attacker hits the lowest-life opponent for
-//     max(0, attackerPower - 0.5 * defenderPower). Commander damage
-//     tracked for the 21-damage win condition.
+//     rates that scale with the defender's bracket
+//   - Combat: per-creature damage assignment with blocking, deaths,
+//     death triggers, commander damage tracking
+//   - Death triggers: drain (Aristocrats), draw (Yawgmoth)
+//   - ETB triggers: draw, ramp, kill-on-enter
+//   - Sac outlets: end-of-turn free conversions of spare creatures
 //   - Win checks: life ≤ 0, library out, 21 commander damage,
-//     alt-wincon resolved (Thoracle / Approach), 15-turn stalemate cap.
+//     alt-wincon resolved (Thoracle / Approach), bracket-aware turn cap.
 //
-// What we do NOT model:
-//   - Color screws (mana base produces "colorless mana" only — we
-//     compare CMC, not pip requirements).
-//   - Stack interactions, blockers, instants on opponents' turns.
-//   - Hexproof, indestructible, replacement effects.
-//   - Discard, mill targeting beyond library-out.
+// What we still do NOT model:
+//   - Stack interactions, instants on opponents' turns
+//   - Hexproof, indestructible, replacement effects
+//   - Discard, mill targeting beyond library-out
+//   - Tutoring chains beyond the basic "ramps lands" effect
 //
 // Result: the simulator gives a directional read on how often the deck
 // stabilizes / closes, not a deterministic match prediction.
 
-import { shouldKeepHand, sortByPriority, availableMana, pickLandToPlay, chooseCombatTarget, pickInteraction } from "./decisions";
+import { getBracketProfile } from "./bracket";
+import {
+  shouldKeepHand,
+  sortByPriority,
+  pickLandToPlay,
+  chooseCombatTarget,
+  pickInteraction,
+} from "./decisions";
+import { buildManaPool, ManaPool } from "./mana";
 import { makeRng, shuffle, type Rng } from "./rng";
 import type {
+  BracketProfile,
   CardProfile,
   GameResult,
   PlayerArchetype,
@@ -39,6 +50,7 @@ const COMMANDER_DAMAGE_LETHAL = 21;
 
 interface RunGameOptions {
   userDeck: CardProfile[];
+  userBracket?: 1 | 2 | 3 | 4 | 5;
   opponents: PlayerArchetype[];
   rng: Rng;
   maxTurns: number;
@@ -47,10 +59,10 @@ interface RunGameOptions {
 function newPlayer(
   id: string,
   archetype: string,
+  bracket: 1 | 2 | 3 | 4 | 5,
   isUser: boolean,
   deck: CardProfile[],
 ): PlayerState {
-  // Find the commander before shuffling.
   const cmdrIdx = deck.findIndex((c) => c.isCommander);
   const commander = cmdrIdx >= 0 ? deck[cmdrIdx] ?? null : null;
   const library = deck.filter((c) => !c.isCommander);
@@ -58,6 +70,7 @@ function newPlayer(
     id,
     isUser,
     archetype,
+    bracket,
     life: STARTING_LIFE,
     lossReason: "",
     library,
@@ -79,10 +92,7 @@ function drawCards(p: PlayerState, n: number): number {
   let drawn = 0;
   for (let i = 0; i < n; i += 1) {
     const top = p.library.shift();
-    if (!top) {
-      // Library out — losing condition checked elsewhere; we just stop.
-      break;
-    }
+    if (!top) break;
     p.hand.push(top);
     drawn += 1;
   }
@@ -90,46 +100,115 @@ function drawCards(p: PlayerState, n: number): number {
 }
 
 /**
- * London mulligan: shuffle, draw 7, decide keep/mull. If mull, send the
- * whole hand back, shuffle, draw 7 again — at depth N you put N cards
- * on the bottom. We cap at 1 mull and skip the bottom-cards step (the
- * sim doesn't care about deck order beyond the next few draws).
+ * London mulligan with bracket-aware strictness. cEDH players mull
+ * harder for combo pieces; B1 players keep funkier hands.
  */
-function mulligan(p: PlayerState, rng: Rng): void {
-  for (let depth = 0; depth <= 1; depth += 1) {
+function mulligan(p: PlayerState, profile: BracketProfile, rng: Rng): void {
+  const cap = profile.mulliganStrictness >= 1.3 ? 2 : 1;
+  for (let depth = 0; depth <= cap; depth += 1) {
     p.library.push(...p.hand);
     p.hand = [];
     shuffle(p.library, rng);
     drawCards(p, STARTING_HAND_SIZE);
-    if (shouldKeepHand(p.hand, depth)) {
+    if (shouldKeepHand(p.hand, depth, profile)) {
       p.mulligansTaken = depth;
       return;
     }
   }
-  p.mulligansTaken = 1;
+  p.mulligansTaken = cap;
 }
 
 function alivePlayers(players: readonly PlayerState[]): PlayerState[] {
   return players.filter((p) => p.lossReason === "");
 }
 
-/** Apply spell-on-cast effects. */
-function applyOnCast(
-  caster: PlayerState,
+// ---------- Triggers ----------
+
+/**
+ * Fire death triggers across all players when `killed` creatures die.
+ * Each creature's controller is encoded so we can fire "your creature
+ * dies" triggers correctly.
+ */
+function fireDeathTriggers(
+  killed: ReadonlyArray<{ card: CardProfile; controller: PlayerState }>,
+  allPlayers: readonly PlayerState[],
+  log: TurnEvent[],
+  turn: number,
+): void {
+  if (killed.length === 0) return;
+
+  for (const player of allPlayers) {
+    // "Whenever any creature dies, each opponent loses N life"
+    // — fires for each death. Source must be in play (permanents).
+    const drainSources = player.permanents.filter(
+      (c) => (c.triggers.onAnyCreatureDiesDrain ?? 0) > 0,
+    );
+    if (drainSources.length > 0) {
+      const totalPerDeath = drainSources.reduce(
+        (sum, s) => sum + (s.triggers.onAnyCreatureDiesDrain ?? 0),
+        0,
+      );
+      const totalDrain = totalPerDeath * killed.length;
+      if (totalDrain > 0) {
+        for (const opp of allPlayers) {
+          if (opp === player || opp.lossReason !== "") continue;
+          opp.life -= totalDrain;
+        }
+        // Heal the controller per death (Blood Artist / Zulaport
+        // Cutthroat both gain 1 to controller too — approximate).
+        player.life += totalDrain;
+        log.push({
+          turn,
+          playerId: player.id,
+          text: `Death triggers drain ${totalDrain} from each opponent (${killed.length} death${killed.length === 1 ? "" : "s"})`,
+        });
+      }
+    }
+
+    // "Whenever another creature you control dies, draw a card."
+    const drawSources = player.permanents.filter(
+      (c) => (c.triggers.onYourCreatureDiesDraw ?? 0) > 0,
+    );
+    if (drawSources.length > 0) {
+      const ownDeaths = killed.filter((k) => k.controller === player).length;
+      // "another" excludes the trigger source itself dying — approximate
+      // by counting all your creature deaths.
+      if (ownDeaths > 0) {
+        const drawPerDeath = drawSources.reduce(
+          (sum, s) => sum + (s.triggers.onYourCreatureDiesDraw ?? 0),
+          0,
+        );
+        const totalDraw = drawPerDeath * ownDeaths;
+        drawCards(player, totalDraw);
+        log.push({
+          turn,
+          playerId: player.id,
+          text: `Death triggers draw ${totalDraw} (${ownDeaths} own creature death${ownDeaths === 1 ? "" : "s"})`,
+        });
+      }
+    }
+  }
+}
+
+function fireEtbTriggers(
   card: CardProfile,
+  caster: PlayerState,
   others: readonly PlayerState[],
   log: TurnEvent[],
   turn: number,
 ): void {
-  // Card draw.
-  if (card.drawsCards > 0) {
-    drawCards(caster, card.drawsCards);
+  const t = card.triggers;
+  if (t.onEtbDraw) {
+    drawCards(caster, t.onEtbDraw);
+    log.push({
+      turn,
+      playerId: caster.id,
+      text: `${card.name} ETB: draws ${t.onEtbDraw}`,
+    });
   }
-  // Land ramp — fetch a land from library to battlefield (we don't
-  // distinguish basics vs. nonbasics here; pick the first land we find).
-  if (card.rampsLands > 0) {
+  if (t.onEtbRamps) {
     let placed = 0;
-    for (let i = caster.library.length - 1; i >= 0 && placed < card.rampsLands; i -= 1) {
+    for (let i = caster.library.length - 1; i >= 0 && placed < t.onEtbRamps; i -= 1) {
       const c = caster.library[i];
       if (c?.isLand) {
         caster.library.splice(i, 1);
@@ -137,70 +216,112 @@ function applyOnCast(
         placed += 1;
       }
     }
-    // Reshuffle after a tutor.
-    // (We don't carry a Rng through here; deterministic order is fine
-    //  for the heuristic's purposes.)
+    if (placed > 0) {
+      log.push({
+        turn,
+        playerId: caster.id,
+        text: `${card.name} ETB: ramps ${placed}`,
+      });
+    }
   }
-  // Removal / wipe — kill `killsCreatures` opposing creatures.
-  if (card.killsCreatures > 0) {
-    const targets = others
-      .filter((p) => p.lossReason === "")
-      .flatMap((p) => p.permanents.filter((x) => x.isCreature).map((x) => ({ p, x })));
-    if (card.killsCreatures >= 99) {
-      // Wipe — kill every creature (including caster's; symmetric).
-      for (const owner of others) {
-        // Move creature permanents to graveyard.
-        const remaining: CardProfile[] = [];
-        for (const c of owner.permanents) {
-          if (c.isCreature) owner.graveyard.push(c);
-          else remaining.push(c);
-        }
-        owner.permanents = remaining;
-      }
-      const remaining: CardProfile[] = [];
-      for (const c of caster.permanents) {
-        if (c.isCreature) caster.graveyard.push(c);
-        else remaining.push(c);
-      }
-      caster.permanents = remaining;
-      log.push({ turn, playerId: caster.id, text: `${card.name} wipes the board` });
-    } else {
-      // Spot removal — pick the biggest creature among opponents.
-      targets.sort((a, b) => b.x.power - a.x.power);
-      let killed = 0;
-      for (const t of targets) {
-        if (killed >= card.killsCreatures) break;
-        const idx = t.p.permanents.indexOf(t.x);
-        if (idx >= 0) {
-          t.p.permanents.splice(idx, 1);
-          t.p.graveyard.push(t.x);
-          killed += 1;
-        }
-      }
-      if (killed > 0) {
-        log.push({
-          turn,
-          playerId: caster.id,
-          text: `${card.name} kills ${killed} creature${killed === 1 ? "" : "s"}`,
-        });
-      }
+  if (t.onEtbKills) {
+    const killed = killBiggestOpposingCreatures(caster, others, t.onEtbKills);
+    if (killed.length > 0) {
+      log.push({
+        turn,
+        playerId: caster.id,
+        text: `${card.name} ETB kills ${killed.length} creature${killed.length === 1 ? "" : "s"}`,
+      });
+      fireDeathTriggers(killed, [caster, ...others], log, turn);
     }
   }
 }
 
-/**
- * Try to cast `card` from `caster.hand`. Pays mana (deducting from a
- * mana pool we track turn-by-turn). Returns true if cast resolved.
- *
- * Reactive interaction: each opponent gets a chance to counter via
- * `pickInteraction`. If countered, the spell goes to graveyard and we
- * still pay the mana.
- */
-/**
- * Check that all non-mana prerequisites are satisfiable. Pure — does
- * not mutate state. Caller must call `consumePrerequisites` after
- * confirming the spell resolves to actually pay these costs.
- */
+/** Kill the biggest opposing creatures. Returns the list with controller
+ *  metadata for trigger firing. */
+function killBiggestOpposingCreatures(
+  caster: PlayerState,
+  others: readonly PlayerState[],
+  count: number,
+): Array<{ card: CardProfile; controller: PlayerState }> {
+  const killed: Array<{ card: CardProfile; controller: PlayerState }> = [];
+  const targets = others
+    .filter((p) => p.lossReason === "")
+    .flatMap((p) =>
+      p.permanents
+        .filter((x) => x.isCreature)
+        .map((x) => ({ p, x })),
+    )
+    .sort((a, b) => b.x.power - a.x.power);
+  let n = 0;
+  for (const t of targets) {
+    if (n >= count) break;
+    const idx = t.p.permanents.indexOf(t.x);
+    if (idx >= 0) {
+      t.p.permanents.splice(idx, 1);
+      t.p.graveyard.push(t.x);
+      killed.push({ card: t.x, controller: t.p });
+      n += 1;
+    }
+  }
+  void caster;
+  return killed;
+}
+
+/** Sac outlets: at end of turn the active player may convert spare
+ *  creatures into mana / draws via in-play sac outlets. Heuristic:
+ *  if we have a sac outlet and ≥2 creatures, sac the smallest and
+ *  fire death triggers. */
+function activateSacOutlets(
+  active: PlayerState,
+  allPlayers: readonly PlayerState[],
+  log: TurnEvent[],
+  turn: number,
+): void {
+  const outlets = active.permanents.filter(
+    (c) => (c.triggers.sacForMana ?? 0) > 0 || (c.triggers.sacForDraw ?? 0) > 0,
+  );
+  if (outlets.length === 0) return;
+
+  // Active player's drain triggers — outlets become win pieces here.
+  const hasDrain = active.permanents.some(
+    (c) => (c.triggers.onAnyCreatureDiesDrain ?? 0) > 0,
+  );
+
+  const fodder = active.permanents
+    .filter((c) => c.isCreature && !outlets.includes(c))
+    .sort((a, b) => a.power - b.power);
+
+  // Only sac if we have drain triggers (otherwise sac'ing is value-neutral
+  // for our heuristic — we don't model the +1 mana toward another spell
+  // this turn).
+  if (!hasDrain) return;
+
+  // Sac up to 4 fodder creatures per turn — represents the burst potential.
+  const toSac = fodder.slice(0, Math.min(4, fodder.length));
+  if (toSac.length === 0) return;
+
+  const killed: Array<{ card: CardProfile; controller: PlayerState }> = [];
+  for (const f of toSac) {
+    const idx = active.permanents.indexOf(f);
+    if (idx >= 0) {
+      active.permanents.splice(idx, 1);
+      active.graveyard.push(f);
+      killed.push({ card: f, controller: active });
+    }
+  }
+  if (killed.length > 0) {
+    log.push({
+      turn,
+      playerId: active.id,
+      text: `Sac outlet activates ${killed.length} time${killed.length === 1 ? "" : "s"}`,
+    });
+    fireDeathTriggers(killed, allPlayers, log, turn);
+  }
+}
+
+// ---------- Cast resolution ----------
+
 function meetsPrerequisites(
   caster: PlayerState,
   others: readonly PlayerState[],
@@ -215,7 +336,6 @@ function meetsPrerequisites(
   }
   if (p.sacLands > 0 && caster.lands.length < p.sacLands) return false;
   if (p.discardCards > 0) {
-    // Hand still includes the spell being cast at this point.
     if (caster.hand.length - 1 < p.discardCards) return false;
   }
   if (p.payLife > 0 && caster.life <= p.payLife) return false;
@@ -233,42 +353,37 @@ function meetsPrerequisites(
   return true;
 }
 
-/**
- * Pay the non-mana costs. Run AFTER mana cost / counter resolution so
- * countered spells don't drain resources. (The Magic rules disagree —
- * additional costs are paid before resolution — but our engine is
- * heuristic and this ordering avoids double-loss when a spell gets
- * countered.)
- */
 function consumePrerequisites(
   caster: PlayerState,
   card: CardProfile,
+  allPlayers: readonly PlayerState[],
   log: TurnEvent[],
   turn: number,
 ): void {
   const p = card.prerequisites;
-  // Sacrifice creatures (lowest power first to keep big threats).
+  const killed: Array<{ card: CardProfile; controller: PlayerState }> = [];
+
   if (p.sacCreatures > 0) {
     const creatures = caster.permanents
-      .map((c, i) => ({ c, i }))
-      .filter((x) => x.c.isCreature)
-      .sort((a, b) => a.c.power - b.c.power);
+      .filter((c) => c.isCreature)
+      .sort((a, b) => a.power - b.power);
     let remaining = p.sacCreatures;
-    for (const { c, i } of creatures) {
+    for (const c of creatures) {
       if (remaining <= 0) break;
-      caster.permanents.splice(caster.permanents.indexOf(c), 1);
-      caster.graveyard.push(c);
-      remaining -= 1;
-      log.push({
-        turn,
-        playerId: caster.id,
-        text: `${card.name}: sacrifices ${c.name}`,
-      });
-      void i;
+      const idx = caster.permanents.indexOf(c);
+      if (idx >= 0) {
+        caster.permanents.splice(idx, 1);
+        caster.graveyard.push(c);
+        killed.push({ card: c, controller: caster });
+        remaining -= 1;
+        log.push({
+          turn,
+          playerId: caster.id,
+          text: `${card.name}: sacrifices ${c.name}`,
+        });
+      }
     }
     if (remaining > 0 && caster.commanderInPlay && caster.commander?.isCreature) {
-      // Falling back on the commander would send it to graveyard /
-      // command zone — we approximate by removing it from play.
       caster.commanderInPlay = false;
       log.push({
         turn,
@@ -287,13 +402,11 @@ function consumePrerequisites(
     }
   }
   if (p.discardCards > 0) {
-    // Discard the lowest-priority cards (highest CMC stragglers, etc.).
     const ordered = [...caster.hand]
-      .map((c, i) => ({ c, i }))
-      .filter((x) => x.c !== card)
-      .sort((a, b) => b.c.cmc - a.c.cmc);
+      .filter((c) => c !== card)
+      .sort((a, b) => b.cmc - a.cmc);
     for (let n = 0; n < p.discardCards && n < ordered.length; n += 1) {
-      const target = ordered[n]!.c;
+      const target = ordered[n]!;
       const idx = caster.hand.indexOf(target);
       if (idx >= 0) {
         caster.hand.splice(idx, 1);
@@ -304,163 +417,321 @@ function consumePrerequisites(
   if (p.payLife > 0) {
     caster.life -= p.payLife;
   }
+
+  // Sacrifices fire death triggers.
+  if (killed.length > 0) {
+    fireDeathTriggers(killed, allPlayers, log, turn);
+  }
 }
 
-function tryCast(
-  caster: PlayerState,
-  card: CardProfile,
-  manaPool: { value: number },
-  others: readonly PlayerState[],
-  log: TurnEvent[],
-  turn: number,
-  rng: Rng,
-): boolean {
-  if (card.cmc > manaPool.value) return false;
-  if (!meetsPrerequisites(caster, others, card)) return false;
+interface CastContext {
+  caster: PlayerState;
+  pool: ManaPool;
+  allPlayers: PlayerState[];
+  others: PlayerState[];
+  log: TurnEvent[];
+  turn: number;
+  rng: Rng;
+}
 
-  const isWincon = card.isAltWincon;
+function tryCast(card: CardProfile, ctx: CastContext): boolean {
+  if (!ctx.pool.pay(card)) return false;
+
+  if (!meetsPrerequisites(ctx.caster, ctx.others, card)) {
+    // Refund mana — we already paid above. The simplest correct
+    // refund: rebuild the pool from current state. But that loses
+    // any existing taps. Easier: re-construct the pool after a
+    // failed cast at the next iteration. For now we re-tap by
+    // marking sources available.
+    for (const s of ctx.pool.sources) s.available = true;
+    return false;
+  }
+
   // Probabilistic counter check across opponents.
+  const isWincon = card.isAltWincon;
   let countered = false;
-  for (const op of others) {
+  for (const op of ctx.others) {
     if (op.lossReason !== "") continue;
-    const idx = pickInteraction(op, card.power, isWincon, rng);
+    const profile = getBracketProfile(op.bracket);
+    const idx = pickInteraction(op, card.power, isWincon, profile, ctx.rng);
     if (idx < 0) continue;
     const reactCard = op.hand[idx];
     if (!reactCard) continue;
-    // Only counter actually counters; remove-from-hand removal can't
-    // hit a spell that's resolving — we use it later.
     if (reactCard.isCounter) {
       op.hand.splice(idx, 1);
       op.graveyard.push(reactCard);
-      manaPool.value -= card.cmc;
-      caster.graveyard.push(card);
-      log.push({
-        turn,
-        playerId: caster.id,
+      ctx.caster.graveyard.push(card);
+      ctx.log.push({
+        turn: ctx.turn,
+        playerId: ctx.caster.id,
         text: `${card.name} countered by ${op.id} (${reactCard.name})`,
       });
       countered = true;
       break;
     }
   }
-  if (countered) return true; // turn-pass effects still apply (spell happened)
+  if (countered) return true;
 
-  manaPool.value -= card.cmc;
-  consumePrerequisites(caster, card, log, turn);
+  consumePrerequisites(ctx.caster, card, ctx.allPlayers, ctx.log, ctx.turn);
+
   if (card.isCommander) {
-    caster.commanderInPlay = true;
-    caster.commanderCastTurn = caster.commanderCastTurn ?? turn;
-    caster.permanents.push(card);
-    log.push({ turn, playerId: caster.id, text: `Cast ${card.name} (commander)` });
+    ctx.caster.commanderInPlay = true;
+    ctx.caster.commanderCastTurn = ctx.caster.commanderCastTurn ?? ctx.turn;
+    ctx.caster.permanents.push(card);
+    ctx.log.push({ turn: ctx.turn, playerId: ctx.caster.id, text: `Cast ${card.name} (commander)` });
   } else if (card.isPermanent) {
-    if (card.isLand) caster.lands.push(card);
-    else caster.permanents.push(card);
-    log.push({ turn, playerId: caster.id, text: `Cast ${card.name}` });
+    if (card.isLand) ctx.caster.lands.push(card);
+    else ctx.caster.permanents.push(card);
+    ctx.log.push({ turn: ctx.turn, playerId: ctx.caster.id, text: `Cast ${card.name}` });
   } else {
-    // Sorcery / instant — to graveyard after resolving.
-    caster.graveyard.push(card);
-    log.push({ turn, playerId: caster.id, text: `Cast ${card.name}` });
+    ctx.caster.graveyard.push(card);
+    ctx.log.push({ turn: ctx.turn, playerId: ctx.caster.id, text: `Cast ${card.name}` });
   }
 
   if (isWincon) {
-    caster.firstWinconAttemptTurn = caster.firstWinconAttemptTurn ?? turn;
+    ctx.caster.firstWinconAttemptTurn = ctx.caster.firstWinconAttemptTurn ?? ctx.turn;
   }
 
-  applyOnCast(caster, card, others, log, turn);
+  applyOnCast(card, ctx);
+  if (card.isPermanent) fireEtbTriggers(card, ctx.caster, ctx.others, ctx.log, ctx.turn);
   return true;
 }
 
-function castCommanderIfAble(
-  caster: PlayerState,
-  manaPool: { value: number },
-  others: readonly PlayerState[],
-  log: TurnEvent[],
-  turn: number,
-  rng: Rng,
-): void {
-  if (caster.commanderInPlay) return;
-  const cmdr = caster.commander;
-  if (!cmdr) return;
-  const cost = cmdr.cmc + caster.commanderTax;
-  if (manaPool.value < cost) return;
-  // We pay the tax separately so the rest of the pipeline still treats
-  // CMC as the cast cost.
-  manaPool.value -= caster.commanderTax;
-  // tryCast will pay the base cmc itself.
-  const wasCast = tryCast(caster, { ...cmdr, isCommander: true }, manaPool, others, log, turn, rng);
-  if (wasCast) caster.commanderTax += 2;
+function applyOnCast(card: CardProfile, ctx: CastContext): void {
+  if (card.drawsCards > 0) {
+    drawCards(ctx.caster, card.drawsCards);
+  }
+  if (card.rampsLands > 0) {
+    let placed = 0;
+    for (let i = ctx.caster.library.length - 1; i >= 0 && placed < card.rampsLands; i -= 1) {
+      const c = ctx.caster.library[i];
+      if (c?.isLand) {
+        ctx.caster.library.splice(i, 1);
+        ctx.caster.lands.push(c);
+        placed += 1;
+      }
+    }
+  }
+  if (card.killsCreatures > 0) {
+    if (card.killsCreatures >= 99) {
+      // Wipe — kill every creature (caster's and opponents').
+      const killed: Array<{ card: CardProfile; controller: PlayerState }> = [];
+      for (const owner of ctx.allPlayers) {
+        const remaining: CardProfile[] = [];
+        for (const c of owner.permanents) {
+          if (c.isCreature) {
+            owner.graveyard.push(c);
+            killed.push({ card: c, controller: owner });
+          } else {
+            remaining.push(c);
+          }
+        }
+        owner.permanents = remaining;
+      }
+      if (killed.length > 0) {
+        ctx.log.push({
+          turn: ctx.turn,
+          playerId: ctx.caster.id,
+          text: `${card.name} wipes ${killed.length} creature${killed.length === 1 ? "" : "s"}`,
+        });
+        fireDeathTriggers(killed, ctx.allPlayers, ctx.log, ctx.turn);
+      }
+    } else {
+      const killed = killBiggestOpposingCreatures(ctx.caster, ctx.others, card.killsCreatures);
+      if (killed.length > 0) {
+        ctx.log.push({
+          turn: ctx.turn,
+          playerId: ctx.caster.id,
+          text: `${card.name} kills ${killed.length} creature${killed.length === 1 ? "" : "s"}`,
+        });
+        fireDeathTriggers(killed, ctx.allPlayers, ctx.log, ctx.turn);
+      }
+    }
+  }
 }
 
-function castSpellsFromHand(
-  caster: PlayerState,
-  manaPool: { value: number },
-  others: readonly PlayerState[],
-  log: TurnEvent[],
-  turn: number,
-  rng: Rng,
-): void {
-  // Iterate in priority order. Use a copy of hand we mutate.
-  while (manaPool.value > 0) {
-    const ordered = sortByPriority(caster.hand, turn);
+function castCommanderIfAble(ctx: CastContext): void {
+  if (ctx.caster.commanderInPlay) return;
+  const cmdr = ctx.caster.commander;
+  if (!cmdr) return;
+  // Pay tax separately from mana cost: model as additional generic
+  // mana taps from the pool before the regular cast.
+  let taxToPay = ctx.caster.commanderTax;
+  while (taxToPay > 0) {
+    const src = ctx.pool.sources.find((s) => s.available);
+    if (!src) return; // can't afford tax
+    src.available = false;
+    taxToPay -= 1;
+  }
+  const cmdrCopy: CardProfile = { ...cmdr, isCommander: true };
+  const wasCast = tryCast(cmdrCopy, ctx);
+  if (wasCast) ctx.caster.commanderTax += 2;
+}
+
+function castSpellsFromHand(ctx: CastContext, profile: BracketProfile): void {
+  // Bracket-aware ordering — combo decks tutor + cast wincons earlier;
+  // combat decks prefer threats.
+  while (ctx.pool.available > 0) {
+    const ordered = sortByPriority(ctx.caster.hand, ctx.turn, profile);
     let cast = false;
     for (const card of ordered) {
       if (card.isLand) continue;
-      if (card.cmc > manaPool.value) continue;
-      const idx = caster.hand.indexOf(card);
+      if (card.cmc > ctx.pool.available) continue;
+      const idx = ctx.caster.hand.indexOf(card);
       if (idx < 0) continue;
-      caster.hand.splice(idx, 1);
-      const ok = tryCast(caster, card, manaPool, others, log, turn, rng);
+      ctx.caster.hand.splice(idx, 1);
+      const ok = tryCast(card, ctx);
       if (ok) {
         cast = true;
         break;
       }
+      // tryCast returned false (mana-color screwed or prereqs failed).
+      // Put the card back and try the next priority.
+      ctx.caster.hand.push(card);
     }
     if (!cast) break;
   }
 }
 
+// ---------- Combat ----------
+
+interface Combatant {
+  card: CardProfile;
+  /** True if currently alive (not yet died this combat). */
+  alive: boolean;
+}
+
+/**
+ * Build the active player's attacker list. Includes commander when it's
+ * a creature on the board.
+ */
+function listAttackers(active: PlayerState): Combatant[] {
+  const out: Combatant[] = active.permanents
+    .filter((c) => c.isCreature)
+    .map((c) => ({ card: c, alive: true }));
+  if (active.commanderInPlay && active.commander?.isCreature) {
+    out.push({ card: active.commander, alive: true });
+  }
+  return out;
+}
+
+function listBlockers(target: PlayerState): Combatant[] {
+  const out: Combatant[] = target.permanents
+    .filter((c) => c.isCreature)
+    .map((c) => ({ card: c, alive: true }));
+  if (target.commanderInPlay && target.commander?.isCreature) {
+    out.push({ card: target.commander, alive: true });
+  }
+  return out;
+}
+
+/**
+ * Per-creature combat with blocker assignment. Defender uses the
+ * biggest blockers against the smallest unblocked attackers (leaves
+ * big attackers through to the face). Excess attacker damage goes to
+ * the defender's life.
+ */
 function combatPhase(
   active: PlayerState,
-  players: readonly PlayerState[],
+  allPlayers: readonly PlayerState[],
+  profile: BracketProfile,
   log: TurnEvent[],
   turn: number,
-): void {
-  const target = chooseCombatTarget(active.id, players);
-  if (!target) return;
-  let attackerPower = 0;
-  let commanderPower = 0;
-  for (const c of active.permanents) {
-    if (c.isCreature) attackerPower += c.power;
-  }
-  if (active.commanderInPlay && active.commander?.isCreature) {
-    attackerPower += active.commander.power;
-    commanderPower += active.commander.power;
-  }
-  if (attackerPower <= 0) return;
+): Array<{ card: CardProfile; controller: PlayerState }> {
+  void profile; // bracket may shape combat aggression in Phase D
 
-  let defenderPower = 0;
-  for (const c of target.permanents) {
-    if (c.isCreature) defenderPower += c.power;
-  }
-  if (target.commanderInPlay && target.commander?.isCreature) {
-    defenderPower += target.commander.power;
-  }
-  const damage = Math.max(0, Math.floor(attackerPower - 0.5 * defenderPower));
-  if (damage <= 0) return;
+  const target = chooseCombatTarget(active.id, allPlayers);
+  if (!target) return [];
 
-  target.life -= damage;
-  // Commander damage proportional to commander's share of attack.
-  if (commanderPower > 0) {
-    const cmdrShare = Math.floor((commanderPower / attackerPower) * damage);
-    target.commanderDamageTo[active.id] =
-      (target.commanderDamageTo[active.id] ?? 0) + cmdrShare;
+  const attackers = listAttackers(active);
+  if (attackers.length === 0) return [];
+  const blockers = listBlockers(target);
+
+  // Sort attackers descending by power (biggest swing first; smallest
+  // are the ones most likely to be blocked).
+  attackers.sort((a, b) => b.card.power - a.card.power);
+  // Sort blockers descending by toughness — defender uses the biggest.
+  blockers.sort((a, b) => b.card.toughness - a.card.toughness);
+
+  const deaths: Array<{ card: CardProfile; controller: PlayerState }> = [];
+
+  // Simple block plan: defender blocks half their creatures (rounded
+  // down) against the smallest attackers. The smallest attackers are
+  // at the END of the (descending) attacker list.
+  const blockerCount = Math.floor(blockers.length / 2);
+  const blocked = attackers.slice(-blockerCount); // smallest N attackers
+  const unblocked = attackers.slice(0, attackers.length - blockerCount);
+
+  // Resolve blocks pairwise.
+  for (let i = 0; i < blockerCount; i += 1) {
+    const att = blocked[i];
+    const def = blockers[i];
+    if (!att || !def) continue;
+    if (att.card.power >= def.card.toughness) {
+      // Blocker dies.
+      const idx = target.permanents.indexOf(def.card);
+      if (idx >= 0) {
+        target.permanents.splice(idx, 1);
+        target.graveyard.push(def.card);
+        deaths.push({ card: def.card, controller: target });
+      } else if (target.commander === def.card) {
+        target.commanderInPlay = false;
+        deaths.push({ card: def.card, controller: target });
+      }
+      def.alive = false;
+    }
+    if (def.card.power >= att.card.toughness) {
+      // Attacker dies.
+      const idx = active.permanents.indexOf(att.card);
+      if (idx >= 0) {
+        active.permanents.splice(idx, 1);
+        active.graveyard.push(att.card);
+        deaths.push({ card: att.card, controller: active });
+      } else if (active.commander === att.card) {
+        active.commanderInPlay = false;
+        deaths.push({ card: att.card, controller: active });
+      }
+      att.alive = false;
+    }
   }
-  log.push({
-    turn,
-    playerId: active.id,
-    text: `Attacks ${target.id} for ${damage} (life ${target.life})`,
-  });
+
+  // Unblocked attackers deal damage to the defender's life. Commander
+  // damage tracked separately for the 21-point rule.
+  let damage = 0;
+  let cmdrDamage = 0;
+  for (const a of unblocked) {
+    if (!a.alive) continue;
+    damage += a.card.power;
+    if (active.commander === a.card) {
+      cmdrDamage += a.card.power;
+    }
+  }
+  if (damage > 0) {
+    target.life -= damage;
+    if (cmdrDamage > 0) {
+      target.commanderDamageTo[active.id] =
+        (target.commanderDamageTo[active.id] ?? 0) + cmdrDamage;
+    }
+    log.push({
+      turn,
+      playerId: active.id,
+      text: `Attacks ${target.id} for ${damage} (life ${target.life})`,
+    });
+  }
+
+  if (deaths.length > 0) {
+    log.push({
+      turn,
+      playerId: active.id,
+      text: `${deaths.length} creature${deaths.length === 1 ? "" : "s"} died in combat`,
+    });
+    fireDeathTriggers(deaths, allPlayers, log, turn);
+  }
+
+  return deaths;
 }
+
+// ---------- Win checks ----------
 
 function checkLossConditions(p: PlayerState, log: TurnEvent[], turn: number): void {
   if (p.lossReason !== "") return;
@@ -469,7 +740,6 @@ function checkLossConditions(p: PlayerState, log: TurnEvent[], turn: number): vo
     log.push({ turn, playerId: p.id, text: "Loses (life ≤ 0)" });
     return;
   }
-  // Commander damage from any single opponent ≥ 21.
   for (const v of Object.values(p.commanderDamageTo)) {
     if (v >= COMMANDER_DAMAGE_LETHAL) {
       p.lossReason = "commander_damage";
@@ -477,8 +747,6 @@ function checkLossConditions(p: PlayerState, log: TurnEvent[], turn: number): vo
       return;
     }
   }
-  // We treat library-out as loss-on-next-draw, but the engine counts a
-  // failed draw as the trigger.
 }
 
 function checkAltWin(
@@ -487,15 +755,8 @@ function checkAltWin(
   log: TurnEvent[],
   turn: number,
 ): boolean {
-  // If the active player attempted a wincon spell this turn AND it
-  // resolved (we know because their graveyard has it), they win.
-  // Phase 1 simplification: the alt-win triggers immediately when the
-  // wincon card is cast. (Thoracle requires library-empty to actually
-  // win; we approximate with "if Demonic Consultation or similar was
-  // cast same turn", but for now any altWincon cast = win.)
   for (const c of active.graveyard) {
     if (c.isAltWincon) {
-      // Find this turn's cast.
       log.push({ turn, playerId: active.id, text: `Wins via ${c.name}` });
       for (const op of others) {
         if (op.lossReason === "") op.lossReason = "alt_win_by_opponent";
@@ -506,29 +767,47 @@ function checkAltWin(
   return false;
 }
 
+// ---------- Top-level game ----------
+
 export function runGame(opts: RunGameOptions): GameResult {
-  const { rng, maxTurns } = opts;
+  const { rng } = opts;
+
+  const userBracket = opts.userBracket ?? 3;
+  const userProfile = getBracketProfile(userBracket);
 
   const players: PlayerState[] = [
-    newPlayer("P1", "user", true, opts.userDeck.slice()),
+    newPlayer("P1", "user", userBracket, true, opts.userDeck.slice()),
     ...opts.opponents.map((opp, i) =>
-      newPlayer(`P${i + 2}`, opp.name, false, opp.deck.slice()),
+      newPlayer(
+        `P${i + 2}`,
+        opp.name,
+        opp.bracket ?? 3,
+        false,
+        opp.deck.slice(),
+      ),
     ),
   ];
   for (const p of players) {
     shuffle(p.library, rng);
     drawCards(p, STARTING_HAND_SIZE);
-    mulligan(p, rng);
+    mulligan(p, getBracketProfile(p.bracket), rng);
   }
 
   const log: TurnEvent[] = [];
   let turn = 0;
 
-  while (turn < maxTurns) {
+  // Cap on game length: median of bracket maxTurns + opts.maxTurns
+  // floor. Lower-bracket pods drag longer, cEDH pods end fast.
+  const allBrackets = players.map((p) => getBracketProfile(p.bracket).maxTurns);
+  const dynamicCap = Math.min(opts.maxTurns, Math.max(...allBrackets));
+
+  while (turn < dynamicCap) {
     turn += 1;
     for (let pi = 0; pi < players.length; pi += 1) {
       const active = players[pi]!;
       if (active.lossReason !== "") continue;
+      const profile = getBracketProfile(active.bracket);
+      void userProfile;
 
       // Untap + draw.
       const drewCount = drawCards(active, turn === 1 && pi === 0 ? 0 : 1);
@@ -545,20 +824,23 @@ export function runGame(opts: RunGameOptions): GameResult {
         active.lands.push(land);
       }
 
-      const manaPool = { value: availableMana(active) };
-
-      // Commander first if affordable.
       const others = players.filter((p) => p !== active);
-      castCommanderIfAble(active, manaPool, others, log, turn, rng);
-      // Then everything else.
-      castSpellsFromHand(active, manaPool, others, log, turn, rng);
+      const ctx: CastContext = {
+        caster: active,
+        pool: buildManaPool(active.lands, active.permanents),
+        allPlayers: players,
+        others,
+        log,
+        turn,
+        rng,
+      };
 
-      // Combat.
-      combatPhase(active, players, log, turn);
+      castCommanderIfAble(ctx);
+      castSpellsFromHand(ctx, profile);
+      combatPhase(active, players, profile, log, turn);
+      activateSacOutlets(active, players, log, turn);
 
-      // Check loss conditions for everyone.
       for (const p of players) checkLossConditions(p, log, turn);
-      // Alt-win check.
       if (checkAltWin(active, others, log, turn)) {
         return finalize(active, players, log, turn);
       }
@@ -569,7 +851,6 @@ export function runGame(opts: RunGameOptions): GameResult {
       }
     }
   }
-  // Stalemate — nobody won by maxTurns.
   return finalize(null, players, log, turn);
 }
 
@@ -595,12 +876,14 @@ function finalize(
 
 export function runGameWithSeed(opts: {
   userDeck: CardProfile[];
+  userBracket?: 1 | 2 | 3 | 4 | 5;
   opponents: PlayerArchetype[];
   seed: number;
   maxTurns?: number;
 }): GameResult {
   return runGame({
     userDeck: opts.userDeck,
+    userBracket: opts.userBracket,
     opponents: opts.opponents,
     rng: makeRng(opts.seed),
     maxTurns: opts.maxTurns ?? 15,

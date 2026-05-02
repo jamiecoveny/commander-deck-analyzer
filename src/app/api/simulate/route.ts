@@ -12,21 +12,52 @@ import {
   type EnrichedLookupRow,
 } from "@/lib/scryfall/api";
 import {
+  bracket2Core,
   bracket3Midrange,
+  bracket4Optimized,
+  bracket5CEDH,
   buildProfile,
   expandProfiles,
   simulate,
   type CardProfile,
+  type PlayerArchetype,
   type SimulateResponse,
 } from "@/lib/sim";
+import { estimateBracket } from "@/lib/bracket/estimate";
 
 export const runtime = "nodejs";
+
+const BracketSchema = z.union([
+  z.literal(1),
+  z.literal(2),
+  z.literal(3),
+  z.literal(4),
+  z.literal(5),
+]);
 
 const RequestSchema = z.object({
   text: z.string().min(1).max(50_000),
   games: z.number().int().min(1).max(20).optional().default(5),
   seed: z.number().int().optional(),
+  /** Override the user's bracket. If omitted, we estimate it from the deck. */
+  userBracket: BracketSchema.optional(),
+  /** Brackets for the 3 opponents (default: [3, 3, 3]). */
+  opponentBrackets: z.array(BracketSchema).length(3).optional(),
 });
+
+function makeOpponent(bracket: 1 | 2 | 3 | 4 | 5): PlayerArchetype {
+  switch (bracket) {
+    case 1:
+    case 2:
+      return bracket2Core();
+    case 3:
+      return bracket3Midrange();
+    case 4:
+      return bracket4Optimized();
+    case 5:
+      return bracket5CEDH();
+  }
+}
 
 interface ErrorBody {
   ok: false;
@@ -125,18 +156,32 @@ export async function POST(request: Request): Promise<Response> {
     overrides,
   );
 
-  const opponents = [
-    bracket3Midrange(),
-    bracket3Midrange(),
-    bracket3Midrange(),
-  ];
-  // Distinct names so the aggregate report can split wins by opponent slot.
-  for (let i = 0; i < opponents.length; i += 1) {
-    opponents[i] = { ...opponents[i]!, name: `Bracket-3 Midrange #${i + 1}` };
+  // Bracket selection: user override > estimator. Same for opponents.
+  let userBracket = parsedBody.data.userBracket;
+  if (userBracket === undefined) {
+    const est = await estimateBracket({
+      cards: validation.deck.cards.map((c) => {
+        const meta = enriched.found.get(c.name);
+        return {
+          name: c.name,
+          typeLine: meta?.typeLine ?? "",
+          oracleText: meta?.oracleText ?? "",
+        };
+      }),
+      combos: [],
+    });
+    userBracket = est.bracket;
   }
+
+  const oppBrackets = parsedBody.data.opponentBrackets ?? [3, 3, 3];
+  const opponents: PlayerArchetype[] = oppBrackets.map((b, i) => {
+    const tpl = makeOpponent(b);
+    return { ...tpl, name: `${tpl.name} #${i + 1}` };
+  });
 
   const result = simulate({
     userDeck,
+    userBracket,
     opponents,
     games: parsedBody.data.games,
     seed: parsedBody.data.seed,

@@ -156,7 +156,13 @@ export function derive(
   input: DeriveInput,
 ): Omit<
   AnalysisResult,
-  "archetype" | "gamePlan" | "combos" | "comboLookupFailed" | "edhrec" | "recommendations"
+  | "archetype"
+  | "gamePlan"
+  | "combos"
+  | "comboLookupFailed"
+  | "edhrec"
+  | "recommendations"
+  | "bracketEstimate"
 > {
   const cards: AnalyzedCard[] = [];
   const categoryCounts = emptyCategories();

@@ -9,8 +9,14 @@
 
 import type { CardCategory } from "@/lib/db/card";
 
-import type { CardProfile, CastPrerequisites } from "./types";
+import type {
+  CardProfile,
+  CastPrerequisites,
+  TriggerProfile,
+} from "./types";
 import { NO_PREREQUISITES } from "./types";
+
+const NO_TRIGGERS: TriggerProfile = {};
 
 export interface ProfileInput {
   oracleId: string;
@@ -33,25 +39,31 @@ interface ProfileOverride {
   isAltWincon?: boolean;
   isCounter?: boolean;
   prerequisites?: Partial<CastPrerequisites>;
+  triggers?: TriggerProfile;
+  /** WUBRG colors this card produces if it's a mana source. */
+  producesColors?: string;
 }
 
 /** Hand-tuned overrides for high-impact staples. Keyed by canonical name. */
 const NAMED: Record<string, ProfileOverride> = {
-  // Mana rocks (pay-once, mana-per-turn).
-  "Sol Ring": { manaPerTurn: 2 },
-  "Mana Crypt": { manaPerTurn: 2 },
-  "Arcane Signet": { manaPerTurn: 1 },
-  "Mind Stone": { manaPerTurn: 1 },
-  "Fellwar Stone": { manaPerTurn: 1 },
-  "Talisman of Dominance": { manaPerTurn: 1 },
-  "Talisman of Hierarchy": { manaPerTurn: 1 },
-  "Talisman of Indulgence": { manaPerTurn: 1 },
-  "Talisman of Resilience": { manaPerTurn: 1 },
-  "Talisman of Unity": { manaPerTurn: 1 },
-  "Coldsteel Heart": { manaPerTurn: 1 },
-  "Commander's Sphere": { manaPerTurn: 1 },
-  "Chromatic Lantern": { manaPerTurn: 1 },
-  "Smothering Tithe": { manaPerTurn: 1, drawsCards: 0 }, // we model the treasure income, not the symmetric draw
+  // Mana rocks (pay-once, mana-per-turn). Most produce colorless;
+  // Signets / Talismans are 2-color, Arcane Signet is rainbow within
+  // the commander's identity (we approximate as colorless since we
+  // don't track per-deck identity at profile-build time).
+  "Sol Ring": { manaPerTurn: 2, producesColors: "C" },
+  "Mana Crypt": { manaPerTurn: 2, producesColors: "C" },
+  "Arcane Signet": { manaPerTurn: 1, producesColors: "C" },
+  "Mind Stone": { manaPerTurn: 1, producesColors: "C" },
+  "Fellwar Stone": { manaPerTurn: 1, producesColors: "C" },
+  "Talisman of Dominance": { manaPerTurn: 1, producesColors: "UB" },
+  "Talisman of Hierarchy": { manaPerTurn: 1, producesColors: "WB" },
+  "Talisman of Indulgence": { manaPerTurn: 1, producesColors: "BR" },
+  "Talisman of Resilience": { manaPerTurn: 1, producesColors: "BG" },
+  "Talisman of Unity": { manaPerTurn: 1, producesColors: "WG" },
+  "Coldsteel Heart": { manaPerTurn: 1, producesColors: "C" },
+  "Commander's Sphere": { manaPerTurn: 1, producesColors: "C" },
+  "Chromatic Lantern": { manaPerTurn: 1, producesColors: "WUBRG" },
+  "Smothering Tithe": { manaPerTurn: 1, drawsCards: 0, producesColors: "C" }, // treasure income approx
 
   // Land ramp (one-shot cast, +N lands).
   Cultivate: { rampsLands: 1, drawsCards: 1 },
@@ -114,6 +126,32 @@ const NAMED: Record<string, ProfileOverride> = {
   "Daze": { prerequisites: { } }, // alt cost: return Island; we don't model alt costs, leave empty
   "Force of Negation": { isCounter: true, prerequisites: { discardCards: 1 } },
 
+  // Death-trigger drains (Aristocrats core).
+  "Zulaport Cutthroat": { triggers: { onAnyCreatureDiesDrain: 1 } },
+  "Blood Artist": { triggers: { onAnyCreatureDiesDrain: 1 } },
+  "Bastion of Remembrance": { triggers: { onAnyCreatureDiesDrain: 1 } },
+  "Cruel Celebrant": { triggers: { onAnyCreatureDiesDrain: 1 } },
+  "Falkenrath Noble": { triggers: { onAnyCreatureDiesDrain: 1 } },
+  "Yawgmoth, Thran Physician": {
+    triggers: { onAnyCreatureDiesDrain: 1, onYourCreatureDiesDraw: 1 },
+  },
+
+  // Sac outlets (free mana / draw activations).
+  "Phyrexian Altar": { triggers: { sacForMana: 1 } },
+  "Ashnod's Altar": { triggers: { sacForMana: 2 } },
+  "Viscera Seer": { triggers: { sacForDraw: 1 } }, // scry approximated as draw
+  "Carrion Feeder": { triggers: {} },
+  "Bloodthrone Vampire": { triggers: {} },
+
+  // ETB value creatures.
+  "Eternal Witness": { triggers: { onEtbDraw: 1 } }, // grave→hand approx
+  "Reclamation Sage": { triggers: { onEtbKills: 1 } },
+  "Mulldrifter": { triggers: { onEtbDraw: 2 } },
+  "Solemn Simulacrum": { triggers: { onEtbRamps: 1 } },
+  "Wood Elves": { triggers: { onEtbRamps: 1 } },
+  "Farhaven Elf": { triggers: { onEtbRamps: 1 } },
+  "Sakura-Tribe Elder": { triggers: { onEtbRamps: 1 } },
+
   // Cast prerequisites — graveyard requirements.
   Reanimate: { prerequisites: { anyGraveCreatures: 1 } },
   "Animate Dead": { prerequisites: { anyGraveCreatures: 1 } },
@@ -154,6 +192,95 @@ function isCreatureTypeLine(typeLine: string): boolean {
 
 function isPermanentTypeLine(typeLine: string): boolean {
   return /\b(Creature|Artifact|Enchantment|Land|Planeswalker|Battle)\b/.test(typeLine);
+}
+
+const BASIC_LAND_COLORS: Record<string, string> = {
+  Plains: "W",
+  Island: "U",
+  Swamp: "B",
+  Mountain: "R",
+  Forest: "G",
+  Wastes: "C",
+};
+
+/**
+ * Determine what colors a land produces. Heuristic — reads the basic
+ * land type line first, then falls back to oracle text "Add {.}"
+ * patterns. Cards we don't recognize default to "C" (colorless) so
+ * they at least produce *some* mana.
+ */
+function detectLandColors(typeLine: string, oracleText: string): string {
+  const colors = new Set<string>();
+
+  // Basic land subtypes give one color each.
+  for (const [name, color] of Object.entries(BASIC_LAND_COLORS)) {
+    if (typeLine.includes(name)) colors.add(color);
+  }
+
+  // Oracle text "Add {W}" / "Add {U}" / "Add one mana of any color".
+  const addMatches = oracleText.matchAll(/\bAdd \{([^}]+)\}/gi);
+  for (const m of addMatches) {
+    const inner = m[1]?.toUpperCase() ?? "";
+    for (const ch of inner.split("/")) {
+      if (/^[WUBRG]$/.test(ch)) colors.add(ch);
+      if (ch === "C") colors.add("C");
+    }
+  }
+  if (/Add (one|any|two) mana of any color/i.test(oracleText)) {
+    colors.add("W");
+    colors.add("U");
+    colors.add("B");
+    colors.add("R");
+    colors.add("G");
+  }
+
+  if (colors.size === 0) return "C";
+  // Strip "C" if any colored mana is present (a Forest doesn't also tap for C in our model).
+  if (colors.size > 1) colors.delete("C");
+  // WUBRG-sorted.
+  const order = ["W", "U", "B", "R", "G", "C"];
+  return order.filter((c) => colors.has(c)).join("");
+}
+
+/**
+ * Detect TriggerProfile fields from oracle text. Conservative — only
+ * the canonical patterns. NAMED overrides win for finer control.
+ */
+function detectTriggers(oracleText: string): TriggerProfile {
+  const out: TriggerProfile = {};
+  if (!oracleText) return out;
+
+  if (/Whenever (a|another) creature dies[^.]*opponent[^.]*loses (\d+|one) life/i.test(oracleText)) {
+    out.onAnyCreatureDiesDrain = 1;
+  }
+  if (/Whenever a creature dies[^.]*you gain (\d+|one) life/i.test(oracleText)) {
+    // gain-life-only triggers (Ayli style) — model as 0 drain since it
+    // only helps the controller, not pressuring opponents.
+  }
+  if (/Whenever another creature you control dies[^.]*draw a card/i.test(oracleText)) {
+    out.onYourCreatureDiesDraw = 1;
+  }
+
+  if (/When [^.]*enters[^.]*battlefield[^.]*draw (\d+|a|two|three) cards?/i.test(oracleText)) {
+    const m = /draw (\d+|a|two|three) cards?/i.exec(oracleText);
+    const word = m?.[1]?.toLowerCase() ?? "a";
+    out.onEtbDraw = word === "two" ? 2 : word === "three" ? 3 : Number.parseInt(word, 10) || 1;
+  }
+  if (/When [^.]*enters[^.]*battlefield[^.]*destroy target/i.test(oracleText)) {
+    out.onEtbKills = 1;
+  }
+  if (/When [^.]*enters[^.]*battlefield[^.]*search your library for [^.]*basic land/i.test(oracleText)) {
+    out.onEtbRamps = 1;
+  }
+
+  if (/Sacrifice (a|another) creature: ?Add \{[^}]+\}/i.test(oracleText)) {
+    out.sacForMana = 1;
+  }
+  if (/Sacrifice (a|another) creature: ?Scry/i.test(oracleText)) {
+    out.sacForDraw = 1;
+  }
+
+  return out;
 }
 
 interface CategoryDefaults {
@@ -272,14 +399,31 @@ export function buildProfile(input: ProfileInput): CardProfile {
   const isAltWincon = named?.isAltWincon ?? cats.includes("wincon");
 
   // Prereqs: detected from text, then named override patches selectively.
-  const detected = detectPrerequisites(input.oracleText);
+  const detectedPrereqs = detectPrerequisites(input.oracleText);
   const namedPrereqs = named?.prerequisites ?? {};
   const prerequisites: CastPrerequisites = {
     ...NO_PREREQUISITES,
-    ...detected,
+    ...detectedPrereqs,
     ...namedPrereqs,
   };
 
+  // Triggers: regex detection + named overrides.
+  const detectedTriggers = detectTriggers(input.oracleText);
+  const triggers: TriggerProfile = {
+    ...detectedTriggers,
+    ...(named?.triggers ?? {}),
+  };
+
+  // Color production: lands derive from type+text; rocks/dorks come
+  // from named override or default colorless.
+  let producesColors = "";
+  if (isLand) {
+    producesColors = detectLandColors(input.typeLine, input.oracleText);
+  } else if (manaPerTurn > 0) {
+    producesColors = named?.producesColors ?? "C";
+  }
+
+  void NO_TRIGGERS; // silence unused-import for fallback path
   return {
     oracleId: input.oracleId,
     name: input.name,
@@ -292,6 +436,7 @@ export function buildProfile(input: ProfileInput): CardProfile {
     isCommander: input.isCommander,
     power: input.power,
     toughness: input.toughness,
+    producesColors,
     manaPerTurn,
     rampsLands,
     drawsCards,
@@ -299,6 +444,7 @@ export function buildProfile(input: ProfileInput): CardProfile {
     isAltWincon,
     isCounter,
     prerequisites,
+    triggers,
   };
 }
 

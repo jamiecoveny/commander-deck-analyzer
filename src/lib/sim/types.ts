@@ -47,6 +47,35 @@ export const NO_PREREQUISITES: CastPrerequisites = {
   anyGraveCreatures: 0,
 };
 
+/**
+ * On-cast / on-death / repeatable triggers that the engine fires when
+ * the relevant event occurs. Heuristic — we don't model the full set,
+ * just the patterns that drive most EDH game shape: death drains, ETB
+ * value, and sac outlets.
+ */
+export interface TriggerProfile {
+  /** Whenever any creature dies (caster or opponent), drain N from
+   *  each opponent. (Zulaport Cutthroat-style.) */
+  onAnyCreatureDiesDrain?: number;
+  /** Whenever another creature you control dies, draw a card.
+   *  (Yawgmoth-style with payment caveats elided.) */
+  onYourCreatureDiesDraw?: number;
+  /** When this enters the battlefield, draw N cards. */
+  onEtbDraw?: number;
+  /** When this enters the battlefield, kill N creatures. (Reclamation
+   *  Sage-style — we approximate to "destroy a permanent".) */
+  onEtbKills?: number;
+  /** When this enters the battlefield, ramp N lands from library. */
+  onEtbRamps?: number;
+  /** Sacrifice a creature: add N mana of any color. (Phyrexian Altar,
+   *  Ashnod's Altar.) Used as a free mana source on the active player's
+   *  turn after they have spare creatures. */
+  sacForMana?: number;
+  /** Sacrifice a creature: draw a card / scry. (Viscera Seer
+   *  approximated as a draw.) */
+  sacForDraw?: number;
+}
+
 export interface CardProfile {
   oracleId: string;
   name: string;
@@ -60,6 +89,10 @@ export interface CardProfile {
   isCommander: boolean;
   power: number;
   toughness: number;
+  /** WUBRG colors this land/rock can produce. "C" for colorless-only.
+   *  "" for non-mana sources. (Sol Ring → "C", Forest → "G",
+   *  Watery Grave → "UB", City of Brass → "WUBRG"). */
+  producesColors: string;
   /** Net mana per turn this provides while in play (Sol Ring=2, Signet=1, Cultivate=0 — Cultivate ramps a land). */
   manaPerTurn: number;
   /** Lands gained when cast (Cultivate=1, Three Visits=1, Skyshroud Claim=2). */
@@ -74,12 +107,43 @@ export interface CardProfile {
   isCounter: boolean;
   /** Non-mana costs and graveyard requirements (Phase A). */
   prerequisites: CastPrerequisites;
+  /** Death / ETB / sac-outlet triggers (Phase C). */
+  triggers: TriggerProfile;
+}
+
+/**
+ * Bracket profile (Phase B+C). Drives AI behavior per WotC bracket
+ * 1–5. Loaded from config/bracket-profiles.json.
+ */
+export interface BracketProfile {
+  bracket: 1 | 2 | 3 | 4 | 5;
+  name: string;
+  /** Turn the engine considers as a stalemate cap (median expected end). */
+  expectedEndTurn: number;
+  /** Win-mix targets: relative weights for AI hand-priority bias. */
+  winMix: {
+    combat: number;
+    combo: number;
+    stax: number;
+    other: number;
+  };
+  /** Probability the AI reacts to an opponent's wincon-priority spell. */
+  reactToWinconProb: number;
+  /** Probability the AI reacts to an opponent's medium threat (>=6 power). */
+  reactToThreatProb: number;
+  /** Mulligan strictness multiplier on the keep-hand threshold.
+   *  >1 = stricter, <1 = looser. Used by `shouldKeepHand`. */
+  mulliganStrictness: number;
+  /** Soft cap on max turns a player will let a game drag. */
+  maxTurns: number;
 }
 
 export interface PlayerState {
   id: string;
   isUser: boolean;
   archetype: string;
+  /** WotC bracket — drives this player's AI behavior. */
+  bracket: 1 | 2 | 3 | 4 | 5;
   life: number;
   /** Set when this player loses; "" while alive. */
   lossReason: string;
@@ -141,6 +205,8 @@ export interface AggregateReport {
 export interface SimulateRequest {
   /** Player decklist as profiles. The first profile with isCommander=true is the commander. */
   userDeck: CardProfile[];
+  /** Bracket the user's deck is treated as (drives the user's own AI behavior). */
+  userBracket?: 1 | 2 | 3 | 4 | 5;
   /** One opponent per pod slot. Phase-1 default: 3 generic Bracket-3 templates. */
   opponents: PlayerArchetype[];
   games: number;
@@ -153,6 +219,8 @@ export interface PlayerArchetype {
   name: string;
   /** Pre-built deck profile for this opponent. */
   deck: CardProfile[];
+  /** WotC bracket — drives AI behavior. Defaults to 3 if unset. */
+  bracket?: 1 | 2 | 3 | 4 | 5;
 }
 
 export interface SimulateResponse {

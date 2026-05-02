@@ -23,6 +23,7 @@ import {
 import { findCombos, type DetectedCombo } from "@/lib/spellbook";
 import { fetchEdhrecCommander, type EdhrecData } from "@/lib/edhrec";
 import { buildRecommendations } from "@/lib/recommend";
+import { estimateBracket } from "@/lib/bracket/estimate";
 
 export const runtime = "nodejs";
 
@@ -231,6 +232,18 @@ export async function POST(request: Request): Promise<Response> {
     combos,
   });
 
+  const bracketEstimate = await estimateBracket({
+    cards: validation.deck.cards.map((c) => {
+      const meta = enriched.found.get(c.name);
+      return {
+        name: c.name,
+        typeLine: meta?.typeLine ?? "",
+        oracleText: meta?.oracleText ?? "",
+      };
+    }),
+    combos,
+  });
+
   const analysis: AnalysisResult = {
     ...baseAnalysis,
     archetype,
@@ -239,6 +252,7 @@ export async function POST(request: Request): Promise<Response> {
     comboLookupFailed,
     edhrec,
     recommendations,
+    bracketEstimate,
   };
   return NextResponse.json<SuccessBody>({
     ok: true,

@@ -278,6 +278,8 @@ function ResultPanel({ analysis }: { analysis: AnalysisResult }): JSX.Element {
         </p>
       </header>
 
+      <BracketBadge estimate={analysis.bracketEstimate} />
+
       <ArchetypeBox archetype={analysis.archetype} />
 
       <GamePlanBox gamePlan={analysis.gamePlan} />
@@ -861,6 +863,50 @@ function EdhrecCompareBox({
           Similar commanders: {edhrec.similarCommanders.slice(0, 5).join(", ")}
         </p>
       )}
+    </section>
+  );
+}
+
+function BracketBadge({
+  estimate,
+}: {
+  estimate: AnalysisResult["bracketEstimate"];
+}): JSX.Element {
+  const colors: Record<number, string> = {
+    1: "bg-emerald-900/40 text-emerald-200 border-emerald-800",
+    2: "bg-blue-900/40 text-blue-200 border-blue-800",
+    3: "bg-amber-900/40 text-amber-200 border-amber-800",
+    4: "bg-orange-900/40 text-orange-200 border-orange-800",
+  };
+  const names: Record<number, string> = {
+    1: "Exhibition",
+    2: "Core",
+    3: "Upgraded",
+    4: "Optimized",
+  };
+  const cls = colors[estimate.bracket] ?? "bg-zinc-900 text-zinc-200 border-zinc-800";
+  return (
+    <section className="rounded-md border border-zinc-800 bg-zinc-950/50 p-4">
+      <p className="text-xs uppercase tracking-widest text-zinc-500 mb-2">
+        Bracket estimate
+      </p>
+      <div className="flex items-center gap-3">
+        <span
+          className={`inline-block rounded-full border px-3 py-1 text-sm font-medium ${cls}`}
+        >
+          Bracket {estimate.bracket} — {names[estimate.bracket]}
+        </span>
+      </div>
+      {estimate.reasons.length > 0 && (
+        <ul className="mt-3 list-disc list-inside text-xs text-zinc-400 space-y-0.5">
+          {estimate.reasons.map((r, i) => (
+            <li key={i}>{r}</li>
+          ))}
+        </ul>
+      )}
+      <p className="mt-2 text-[11px] text-zinc-600">
+        Bracket 5 (cEDH) is never auto-tagged — it&apos;s a self-claimed archetype.
+      </p>
     </section>
   );
 }
