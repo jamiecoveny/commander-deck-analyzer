@@ -17,7 +17,8 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio",
     "scryfall:sync": "tsx scripts/scryfall-sync.ts",
-    "classify": "tsx scripts/classify-cards.ts"
+    "classify": "tsx scripts/classify-cards.ts",
+    "postinstall": "prisma generate"
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",
