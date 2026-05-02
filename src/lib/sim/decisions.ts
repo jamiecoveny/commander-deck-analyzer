@@ -6,6 +6,11 @@
 // behavior scales with the player's power level — cEDH players counter
 // 95% of wincons, B1 players keep funkier hands.
 
+import {
+  canLethal,
+  comboRiskScore,
+  threatScore,
+} from "./threats";
 import type { BracketProfile, CardProfile, PlayerState } from "./types";
 
 /**
@@ -148,46 +153,63 @@ export function pickLandToPlay(hand: readonly CardProfile[]): number {
 }
 
 /**
- * Combat target selection: pick the opponent with the lowest life that's
- * still alive. Ties broken by least board presence (proxy for "weakest
- * player at the table" politics).
+ * Combat target selection — Phase D smarter-AI version.
+ *
+ * Decision order:
+ *   1. If we can lethal anyone, attack them.
+ *   2. Otherwise, attack the highest-threat opponent (about-to-win
+ *      detection — wincons in play, sac engines, big board).
+ *   3. Tiebreak: lower-life opponent first (finish weakened players).
  */
 export function chooseCombatTarget(
   attackerId: string,
   players: readonly PlayerState[],
 ): PlayerState | null {
+  const me = players.find((p) => p.id === attackerId);
   const opponents = players.filter(
     (p) => p.id !== attackerId && p.lossReason === "",
   );
   if (opponents.length === 0) return null;
+
+  // 1. Lethal check.
+  if (me) {
+    for (const opp of opponents) {
+      if (canLethal(me, opp)) return opp;
+    }
+  }
+
+  // 2. Threat-rank.
   opponents.sort((a, b) => {
-    if (a.life !== b.life) return a.life - b.life;
-    return totalBoardPower(a) - totalBoardPower(b);
+    const ts = threatScore(b) - threatScore(a);
+    if (Math.abs(ts) > 1) return ts;
+    return a.life - b.life; // tiebreak: hit weaker player
   });
   return opponents[0]!;
 }
 
-function totalBoardPower(p: PlayerState): number {
-  let n = 0;
-  for (const c of p.permanents) if (c.isCreature) n += c.power;
-  if (p.commanderInPlay && p.commander?.isCreature) n += p.commander.power;
-  return n;
-}
-
 /**
- * Probabilistic counter / removal reaction. Bracket-aware: cEDH players
- * react to wincons at 95%, B1 players at 25%.
+ * Probabilistic counter / removal reaction. Phase D version:
+ * also reacts to non-wincon spells from opponents who look like they
+ * are assembling a combo (`comboRiskScore >= 2`). Bracket-aware:
+ * cEDH players react to wincons at 95%, B1 players at 25%.
  *
  * Returns the index of the card to spend, or -1 if no react.
  */
 export function pickInteraction(
   defender: PlayerState,
+  caster: PlayerState | null,
   threatPower: number,
   threatIsWincon: boolean,
   profile: BracketProfile,
   rng: () => number,
 ): number {
-  if (threatIsWincon) {
+  // If the caster is showing a real combo board, treat their spells as
+  // wincons even if the spell itself isn't flagged isAltWincon.
+  const treatAsWincon =
+    threatIsWincon ||
+    (caster !== null && comboRiskScore(caster) >= 2);
+
+  if (treatAsWincon) {
     if (rng() > profile.reactToWinconProb) return -1;
   } else if (threatPower >= 6) {
     if (rng() > profile.reactToThreatProb) return -1;
@@ -197,7 +219,7 @@ export function pickInteraction(
   for (let i = 0; i < defender.hand.length; i += 1) {
     if (defender.hand[i]?.isCounter) return i;
   }
-  if (!threatIsWincon) {
+  if (!treatAsWincon) {
     for (let i = 0; i < defender.hand.length; i += 1) {
       const c = defender.hand[i];
       if (c && c.killsCreatures > 0 && c.killsCreatures < 99) return i;

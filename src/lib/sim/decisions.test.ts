@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { getBracketProfile } from "./bracket";
 import {
   availableMana,
+  chooseCombatTarget,
   pickInteraction,
   shouldKeepHand,
   sortByPriority,
@@ -129,6 +130,56 @@ describe("sortByPriority", () => {
   });
 });
 
+describe("chooseCombatTarget — Phase D threat awareness", () => {
+  function pl(over: Partial<PlayerState>): PlayerState {
+    return {
+      id: "X",
+      isUser: false,
+      archetype: "test",
+      bracket: 3,
+      life: 40,
+      lossReason: "",
+      library: [],
+      hand: [],
+      graveyard: [],
+      lands: [],
+      permanents: [],
+      commander: null,
+      commanderInPlay: false,
+      commanderTax: 0,
+      commanderDamageTo: {},
+      mulligansTaken: 0,
+      firstWinconAttemptTurn: null,
+      commanderCastTurn: null,
+      ...over,
+    } as PlayerState;
+  }
+
+  it("attacks the wincon-threat opponent over a low-life opponent", () => {
+    const me = pl({ id: "P1" });
+    const lowLife = pl({ id: "P2", life: 5 });
+    const wincon = c({ isAltWincon: true, isPermanent: true });
+    const threatOpp = pl({ id: "P3", life: 38, permanents: [wincon] });
+    const target = chooseCombatTarget("P1", [me, lowLife, threatOpp]);
+    expect(target?.id).toBe("P3");
+  });
+
+  it("goes for lethal when available", () => {
+    const me = pl({
+      id: "P1",
+      permanents: [c({ isCreature: true, power: 10, toughness: 10 })],
+    });
+    const lethalTarget = pl({ id: "P2", life: 8 });
+    const bigger = pl({
+      id: "P3",
+      life: 40,
+      permanents: [c({ isAltWincon: true, isPermanent: true })],
+    });
+    const t = chooseCombatTarget("P1", [me, lethalTarget, bigger]);
+    expect(t?.id).toBe("P2");
+  });
+});
+
 describe("pickInteraction", () => {
   function defenderWith(card: CardProfile): PlayerState {
     return { hand: [card] } as unknown as PlayerState;
@@ -137,20 +188,20 @@ describe("pickInteraction", () => {
   it("never reacts to a small non-wincon threat (B3)", () => {
     const counter = c({ name: "Counter", isCounter: true });
     expect(
-      pickInteraction(defenderWith(counter), 2, false, B3, () => 0),
+      pickInteraction(defenderWith(counter), null, 2, false, B3, () => 0),
     ).toBe(-1);
   });
 
   it("reacts to a wincon if a counter is in hand (B3, high prob)", () => {
     const counter = c({ name: "Counter", isCounter: true });
     expect(
-      pickInteraction(defenderWith(counter), 0, true, B3, () => 0),
+      pickInteraction(defenderWith(counter), null, 0, true, B3, () => 0),
     ).toBe(0);
   });
 
   it("returns -1 when there is no counter / removal", () => {
     expect(
-      pickInteraction(defenderWith(c({ name: "Nothing" })), 0, true, B3, () => 0),
+      pickInteraction(defenderWith(c({ name: "Nothing" })), null, 0, true, B3, () => 0),
     ).toBe(-1);
   });
 
@@ -158,10 +209,10 @@ describe("pickInteraction", () => {
     const counter = c({ name: "Counter", isCounter: true });
     // rng returns 0.9 → above B3 threshold (0.65), below B5 threshold (0.95).
     expect(
-      pickInteraction(defenderWith(counter), 0, true, B3, () => 0.9),
+      pickInteraction(defenderWith(counter), null, 0, true, B3, () => 0.9),
     ).toBe(-1);
     expect(
-      pickInteraction(defenderWith(counter), 0, true, B5, () => 0.9),
+      pickInteraction(defenderWith(counter), null, 0, true, B5, () => 0.9),
     ).toBe(0);
   });
 });

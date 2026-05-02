@@ -35,6 +35,7 @@ import {
 } from "./decisions";
 import { buildManaPool, ManaPool } from "./mana";
 import { makeRng, shuffle, type Rng } from "./rng";
+import { chooseRemovalTargets, reservedReactiveMana } from "./threats";
 import type {
   BracketProfile,
   CardProfile,
@@ -225,7 +226,7 @@ function fireEtbTriggers(
     }
   }
   if (t.onEtbKills) {
-    const killed = killBiggestOpposingCreatures(caster, others, t.onEtbKills);
+    const killed = killOpposingCreaturesSmart(caster, others, t.onEtbKills);
     if (killed.length > 0) {
       log.push({
         turn,
@@ -237,34 +238,38 @@ function fireEtbTriggers(
   }
 }
 
-/** Kill the biggest opposing creatures. Returns the list with controller
- *  metadata for trigger firing. */
-function killBiggestOpposingCreatures(
+/**
+ * Kill `count` creatures via spot removal — Phase D smart targeting.
+ * Uses chooseRemovalTargets which prioritizes wincons, commanders,
+ * sac engines, value engines, then biggest power.
+ */
+function killOpposingCreaturesSmart(
   caster: PlayerState,
   others: readonly PlayerState[],
   count: number,
 ): Array<{ card: CardProfile; controller: PlayerState }> {
+  void caster;
+  const targets = chooseRemovalTargets(others, count);
   const killed: Array<{ card: CardProfile; controller: PlayerState }> = [];
-  const targets = others
-    .filter((p) => p.lossReason === "")
-    .flatMap((p) =>
-      p.permanents
-        .filter((x) => x.isCreature)
-        .map((x) => ({ p, x })),
-    )
-    .sort((a, b) => b.x.power - a.x.power);
-  let n = 0;
   for (const t of targets) {
-    if (n >= count) break;
-    const idx = t.p.permanents.indexOf(t.x);
+    // Commander on the battlefield: removing it sends to graveyard
+    // (in real MTG it could go to command zone; we approximate with
+    // grave + commanderInPlay = false for the upkeep tax bump).
+    if (t.card === t.controller.commander) {
+      if (t.controller.commanderInPlay) {
+        t.controller.commanderInPlay = false;
+        t.controller.graveyard.push(t.card);
+        killed.push({ card: t.card, controller: t.controller });
+      }
+      continue;
+    }
+    const idx = t.controller.permanents.indexOf(t.card);
     if (idx >= 0) {
-      t.p.permanents.splice(idx, 1);
-      t.p.graveyard.push(t.x);
-      killed.push({ card: t.x, controller: t.p });
-      n += 1;
+      t.controller.permanents.splice(idx, 1);
+      t.controller.graveyard.push(t.card);
+      killed.push({ card: t.card, controller: t.controller });
     }
   }
-  void caster;
   return killed;
 }
 
@@ -453,7 +458,7 @@ function tryCast(card: CardProfile, ctx: CastContext): boolean {
   for (const op of ctx.others) {
     if (op.lossReason !== "") continue;
     const profile = getBracketProfile(op.bracket);
-    const idx = pickInteraction(op, card.power, isWincon, profile, ctx.rng);
+    const idx = pickInteraction(op, ctx.caster, card.power, isWincon, profile, ctx.rng);
     if (idx < 0) continue;
     const reactCard = op.hand[idx];
     if (!reactCard) continue;
@@ -537,7 +542,7 @@ function applyOnCast(card: CardProfile, ctx: CastContext): void {
         fireDeathTriggers(killed, ctx.allPlayers, ctx.log, ctx.turn);
       }
     } else {
-      const killed = killBiggestOpposingCreatures(ctx.caster, ctx.others, card.killsCreatures);
+      const killed = killOpposingCreaturesSmart(ctx.caster, ctx.others, card.killsCreatures);
       if (killed.length > 0) {
         ctx.log.push({
           turn: ctx.turn,
@@ -569,14 +574,27 @@ function castCommanderIfAble(ctx: CastContext): void {
 }
 
 function castSpellsFromHand(ctx: CastContext, profile: BracketProfile): void {
+  // Phase D: reserve mana for reactive interaction. cEDH players
+  // always hold up their cheapest counter; B3-4 hold up when there's
+  // a real threat or combo risk on the table.
+  const reserve = reservedReactiveMana(
+    ctx.caster,
+    ctx.others,
+    profile.bracket,
+  );
+
   // Bracket-aware ordering — combo decks tutor + cast wincons earlier;
   // combat decks prefer threats.
   while (ctx.pool.available > 0) {
     const ordered = sortByPriority(ctx.caster.hand, ctx.turn, profile);
     let cast = false;
+    const usableMana = ctx.pool.available - reserve;
     for (const card of ordered) {
       if (card.isLand) continue;
-      if (card.cmc > ctx.pool.available) continue;
+      // Skip if casting this would dip below the reserve. Counterspells
+      // are exempt — they ARE the reserve.
+      const ceiling = card.isCounter ? ctx.pool.available : usableMana;
+      if (card.cmc > ceiling) continue;
       const idx = ctx.caster.hand.indexOf(card);
       if (idx < 0) continue;
       ctx.caster.hand.splice(idx, 1);
