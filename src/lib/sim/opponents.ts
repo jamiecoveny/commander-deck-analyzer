@@ -10,6 +10,7 @@ import type { CardCategory } from "@/lib/db/card";
 
 import { expandProfiles } from "./profiles";
 import type { CardProfile, PlayerArchetype } from "./types";
+import { NO_PREREQUISITES } from "./types";
 
 interface ProfileSpec {
   name: string;
@@ -52,6 +53,7 @@ function p(spec: ProfileSpec): CardProfile {
     killsCreatures: spec.killsCreatures ?? 0,
     isAltWincon: spec.isAltWincon ?? false,
     isCounter: spec.isCounter ?? false,
+    prerequisites: NO_PREREQUISITES,
   };
 }
 

@@ -8,6 +8,45 @@
 
 import type { CardCategory } from "@/lib/db/card";
 
+/**
+ * Pre-cast requirements that aren't part of the mana cost. The engine
+ * blocks the cast when any of these aren't satisfiable; meeting them
+ * also consumes the listed resources (sac the creature, discard the
+ * card, pay the life).
+ *
+ * Examples:
+ *   - Culling the Weak: { sacCreatures: 1 }
+ *   - Diabolic Intent:  { sacCreatures: 1 }
+ *   - Reanimate:        { discardCards: 0, anyGraveCreatures: 1 }
+ *                       (cost is "pay life equal to..."; we approximate
+ *                        with anyGraveCreatures since that's the real
+ *                        gating constraint for whether you cast it)
+ *   - Victimize:        { ownGraveCreatures: 1 }
+ *                       (text reads "two creature cards" but it's
+ *                        castable with 1 — second is optional)
+ */
+export interface CastPrerequisites {
+  sacCreatures: number;
+  sacLands: number;
+  /** Cards in hand other than this spell required as discard cost. */
+  discardCards: number;
+  /** Caller life must be greater than this value. */
+  payLife: number;
+  /** Creature cards in caster's own graveyard. */
+  ownGraveCreatures: number;
+  /** Creature cards in any graveyard (caster + opponents). */
+  anyGraveCreatures: number;
+}
+
+export const NO_PREREQUISITES: CastPrerequisites = {
+  sacCreatures: 0,
+  sacLands: 0,
+  discardCards: 0,
+  payLife: 0,
+  ownGraveCreatures: 0,
+  anyGraveCreatures: 0,
+};
+
 export interface CardProfile {
   oracleId: string;
   name: string;
@@ -33,6 +72,8 @@ export interface CardProfile {
   isAltWincon: boolean;
   /** True if this is a counterspell. */
   isCounter: boolean;
+  /** Non-mana costs and graveyard requirements (Phase A). */
+  prerequisites: CastPrerequisites;
 }
 
 export interface PlayerState {

@@ -9,7 +9,8 @@
 
 import type { CardCategory } from "@/lib/db/card";
 
-import type { CardProfile } from "./types";
+import type { CardProfile, CastPrerequisites } from "./types";
+import { NO_PREREQUISITES } from "./types";
 
 export interface ProfileInput {
   oracleId: string;
@@ -31,6 +32,7 @@ interface ProfileOverride {
   killsCreatures?: number;
   isAltWincon?: boolean;
   isCounter?: boolean;
+  prerequisites?: Partial<CastPrerequisites>;
 }
 
 /** Hand-tuned overrides for high-impact staples. Keyed by canonical name. */
@@ -91,9 +93,9 @@ const NAMED: Record<string, ProfileOverride> = {
   // Counters.
   "Counterspell": { isCounter: true },
   "Mana Drain": { isCounter: true },
-  "Force of Will": { isCounter: true },
+  "Force of Will": { isCounter: true, prerequisites: { discardCards: 1 } },
   "Fierce Guardianship": { isCounter: true },
-  "Pact of Negation": { isCounter: true },
+  "Pact of Negation": { isCounter: true }, // delayed cost; we don't punish in-game
   "Swan Song": { isCounter: true },
 
   // Alt-wins.
@@ -102,6 +104,24 @@ const NAMED: Record<string, ProfileOverride> = {
   "Jace, Wielder of Mysteries": { isAltWincon: true },
   "Approach of the Second Sun": { isAltWincon: true },
   "Coalition Victory": { isAltWincon: true },
+
+  // Cast prerequisites — additional costs.
+  "Culling the Weak": { prerequisites: { sacCreatures: 1 } },
+  "Diabolic Intent": { prerequisites: { sacCreatures: 1 } },
+  "Plumb the Forbidden": { prerequisites: { sacCreatures: 1 } },
+  "Phyrexian Tower": { prerequisites: { sacCreatures: 1 } }, // activation, but treated as cast for sim purposes
+  "Snuff Out": { prerequisites: { payLife: 4 } }, // alt cost: pay 4 life instead of {3}{B}
+  "Daze": { prerequisites: { } }, // alt cost: return Island; we don't model alt costs, leave empty
+  "Force of Negation": { isCounter: true, prerequisites: { discardCards: 1 } },
+
+  // Cast prerequisites — graveyard requirements.
+  Reanimate: { prerequisites: { anyGraveCreatures: 1 } },
+  "Animate Dead": { prerequisites: { anyGraveCreatures: 1 } },
+  Necromancy: { prerequisites: { anyGraveCreatures: 1 } },
+  "Dance of the Dead": { prerequisites: { anyGraveCreatures: 1 } },
+  Victimize: { prerequisites: { ownGraveCreatures: 1, sacCreatures: 1 } },
+  "Living Death": { prerequisites: { } }, // symmetric mass return; allow always
+  "Unburial Rites": { prerequisites: { anyGraveCreatures: 1 } },
 };
 
 const COLOR_ORDER = ["W", "U", "B", "R", "G"] as const;
@@ -142,6 +162,63 @@ interface CategoryDefaults {
   drawsCards?: number;
   killsCreatures?: number;
   isCounter?: boolean;
+}
+
+/**
+ * Detect cast prerequisites from oracle text. Conservative — only fires
+ * when the wording is unambiguous. Hand-curated overrides in NAMED take
+ * precedence over anything detected here.
+ */
+function detectPrerequisites(oracleText: string): Partial<CastPrerequisites> {
+  const out: Partial<CastPrerequisites> = {};
+  if (!oracleText) return out;
+
+  // Additional sac costs.
+  // "As an additional cost to cast this spell, sacrifice a creature."
+  const sacCreatureMatch = /As an additional cost[^.]*sacrifice (?:(a|an|two|three|four)\s+)?(?:other\s+)?creature/i.exec(
+    oracleText,
+  );
+  if (sacCreatureMatch) {
+    const word = sacCreatureMatch[1]?.toLowerCase() ?? "a";
+    out.sacCreatures =
+      word === "two"
+        ? 2
+        : word === "three"
+          ? 3
+          : word === "four"
+            ? 4
+            : 1;
+  }
+
+  if (/As an additional cost[^.]*sacrifice (?:a|an|two|three) lands?/i.test(oracleText)) {
+    out.sacLands = /sacrifice (two|three)/i.test(oracleText) ? 2 : 1;
+  }
+
+  if (/As an additional cost[^.]*discard (?:a|an|two) cards?/i.test(oracleText)) {
+    out.discardCards = /discard (two)/i.test(oracleText) ? 2 : 1;
+  }
+
+  const payLifeMatch = /As an additional cost[^.]*pay (\d+) life/i.exec(oracleText);
+  if (payLifeMatch && payLifeMatch[1]) {
+    const n = Number.parseInt(payLifeMatch[1], 10);
+    if (Number.isFinite(n)) out.payLife = n;
+  }
+
+  // Graveyard requirements (Tier 2).
+  // "Return target creature card from your graveyard"
+  if (/Return target [^.]*creature card[^.]*from your graveyard/i.test(oracleText)) {
+    out.ownGraveCreatures = 1;
+  }
+  // "...from a graveyard..." (any player's)
+  if (/Return target [^.]*creature card[^.]*from a graveyard/i.test(oracleText)) {
+    out.anyGraveCreatures = 1;
+  }
+  // Reanimate-style: "Put target creature card from a graveyard onto the battlefield"
+  if (/Put target [^.]*creature card[^.]*from a graveyard onto the battlefield/i.test(oracleText)) {
+    out.anyGraveCreatures = 1;
+  }
+
+  return out;
 }
 
 function defaultsFromCategory(
@@ -194,6 +271,15 @@ export function buildProfile(input: ProfileInput): CardProfile {
   const isCounter = named?.isCounter ?? defaults.isCounter ?? false;
   const isAltWincon = named?.isAltWincon ?? cats.includes("wincon");
 
+  // Prereqs: detected from text, then named override patches selectively.
+  const detected = detectPrerequisites(input.oracleText);
+  const namedPrereqs = named?.prerequisites ?? {};
+  const prerequisites: CastPrerequisites = {
+    ...NO_PREREQUISITES,
+    ...detected,
+    ...namedPrereqs,
+  };
+
   return {
     oracleId: input.oracleId,
     name: input.name,
@@ -212,6 +298,7 @@ export function buildProfile(input: ProfileInput): CardProfile {
     killsCreatures,
     isAltWincon,
     isCounter,
+    prerequisites,
   };
 }
 

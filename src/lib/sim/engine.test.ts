@@ -156,6 +156,87 @@ describe("runGameWithSeed", () => {
   });
 });
 
+describe("runGameWithSeed — prerequisite gating", () => {
+  function buildSacDeck(): CardProfile[] {
+    // 100-card deck whose only non-land spells are a Culling-the-Weak
+    // analogue (sac-creature cost) and Plains. The bug we're guarding
+    // against: Culling getting cast turn 1 with no creatures on board.
+    const commander = p({
+      name: "Test Commander",
+      cmc: 4,
+      typeLine: "Legendary Creature",
+      power: 4,
+      toughness: 4,
+      isCommander: true,
+    });
+    const culling = p({
+      name: "Culling the Weak",
+      cmc: 1,
+      typeLine: "Instant",
+      oracleText:
+        "As an additional cost to cast this spell, sacrifice a creature.\nAdd {B}{B}{B}{B}.",
+      categories: [],
+    });
+    const specs: Array<{ profile: CardProfile; quantity: number }> = [
+      { profile: p({ name: "Land", typeLine: "Basic Land — Forest" }), quantity: 36 },
+      { profile: culling, quantity: 4 },
+      {
+        profile: p({
+          name: "Mid Threat",
+          cmc: 4,
+          typeLine: "Creature — Beast",
+          power: 4,
+          toughness: 4,
+        }),
+        quantity: 30,
+      },
+      {
+        profile: p({
+          name: "Vanilla",
+          cmc: 2,
+          typeLine: "Creature — Beast",
+          power: 2,
+          toughness: 2,
+        }),
+        quantity: 29,
+      },
+    ];
+    return [commander, ...expandProfiles(specs)];
+  }
+
+  it("never casts Culling the Weak before any creature is on the board", () => {
+    // Run several seeds; Culling has the right mana cost from turn 1
+    // but should be blocked because the player has no creature to sac.
+    for (let seed = 0; seed < 5; seed += 1) {
+      const r = runGameWithSeed({
+        userDeck: buildSacDeck(),
+        opponents: [bracket3Midrange(), bracket3Midrange(), bracket3Midrange()],
+        seed,
+        maxTurns: 8,
+      });
+      // For every Culling cast, there must be at least one creature
+      // on P1's board at the moment of cast (preceded by a creature
+      // entering during the same turn or earlier).
+      const userEvents = r.log.filter((e) => e.playerId === "P1");
+      let hasCreatureBeforeCulling = false;
+      let earliestCullingTurn: number | null = null;
+      for (const e of userEvents) {
+        if (/Cast (Mid Threat|Vanilla|Test Commander)/.test(e.text)) {
+          hasCreatureBeforeCulling = true;
+        }
+        if (/Cast Culling the Weak/.test(e.text)) {
+          if (earliestCullingTurn == null) earliestCullingTurn = e.turn;
+          expect(hasCreatureBeforeCulling).toBe(true);
+        }
+      }
+      // Optional sanity: if we ever cast it, it was no earlier than T2.
+      if (earliestCullingTurn != null) {
+        expect(earliestCullingTurn).toBeGreaterThanOrEqual(2);
+      }
+    }
+  });
+});
+
 describe("simulate (aggregate)", () => {
   it("aggregates win rate, turns, mulligans across N games", () => {
     const userDeck = buildBalancedDeck();

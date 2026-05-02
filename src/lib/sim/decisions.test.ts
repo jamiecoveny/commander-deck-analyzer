@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { availableMana, pickInteraction, shouldKeepHand, sortByPriority } from "./decisions";
 import { makeRng } from "./rng";
 import type { CardProfile, PlayerState } from "./types";
+import { NO_PREREQUISITES } from "./types";
 
 const c = (over: Partial<CardProfile> = {}): CardProfile => ({
   oracleId: "x",
@@ -22,6 +23,7 @@ const c = (over: Partial<CardProfile> = {}): CardProfile => ({
   killsCreatures: 0,
   isAltWincon: false,
   isCounter: false,
+  prerequisites: NO_PREREQUISITES,
   ...over,
 });
 

@@ -196,6 +196,116 @@ function applyOnCast(
  * `pickInteraction`. If countered, the spell goes to graveyard and we
  * still pay the mana.
  */
+/**
+ * Check that all non-mana prerequisites are satisfiable. Pure — does
+ * not mutate state. Caller must call `consumePrerequisites` after
+ * confirming the spell resolves to actually pay these costs.
+ */
+function meetsPrerequisites(
+  caster: PlayerState,
+  others: readonly PlayerState[],
+  card: CardProfile,
+): boolean {
+  const p = card.prerequisites;
+  if (p.sacCreatures > 0) {
+    const onBoard = caster.permanents.filter((c) => c.isCreature).length;
+    const cmdr =
+      caster.commanderInPlay && caster.commander?.isCreature ? 1 : 0;
+    if (onBoard + cmdr < p.sacCreatures) return false;
+  }
+  if (p.sacLands > 0 && caster.lands.length < p.sacLands) return false;
+  if (p.discardCards > 0) {
+    // Hand still includes the spell being cast at this point.
+    if (caster.hand.length - 1 < p.discardCards) return false;
+  }
+  if (p.payLife > 0 && caster.life <= p.payLife) return false;
+  if (p.ownGraveCreatures > 0) {
+    const n = caster.graveyard.filter((c) => c.isCreature).length;
+    if (n < p.ownGraveCreatures) return false;
+  }
+  if (p.anyGraveCreatures > 0) {
+    let n = caster.graveyard.filter((c) => c.isCreature).length;
+    for (const o of others) {
+      n += o.graveyard.filter((c) => c.isCreature).length;
+    }
+    if (n < p.anyGraveCreatures) return false;
+  }
+  return true;
+}
+
+/**
+ * Pay the non-mana costs. Run AFTER mana cost / counter resolution so
+ * countered spells don't drain resources. (The Magic rules disagree —
+ * additional costs are paid before resolution — but our engine is
+ * heuristic and this ordering avoids double-loss when a spell gets
+ * countered.)
+ */
+function consumePrerequisites(
+  caster: PlayerState,
+  card: CardProfile,
+  log: TurnEvent[],
+  turn: number,
+): void {
+  const p = card.prerequisites;
+  // Sacrifice creatures (lowest power first to keep big threats).
+  if (p.sacCreatures > 0) {
+    const creatures = caster.permanents
+      .map((c, i) => ({ c, i }))
+      .filter((x) => x.c.isCreature)
+      .sort((a, b) => a.c.power - b.c.power);
+    let remaining = p.sacCreatures;
+    for (const { c, i } of creatures) {
+      if (remaining <= 0) break;
+      caster.permanents.splice(caster.permanents.indexOf(c), 1);
+      caster.graveyard.push(c);
+      remaining -= 1;
+      log.push({
+        turn,
+        playerId: caster.id,
+        text: `${card.name}: sacrifices ${c.name}`,
+      });
+      void i;
+    }
+    if (remaining > 0 && caster.commanderInPlay && caster.commander?.isCreature) {
+      // Falling back on the commander would send it to graveyard /
+      // command zone — we approximate by removing it from play.
+      caster.commanderInPlay = false;
+      log.push({
+        turn,
+        playerId: caster.id,
+        text: `${card.name}: sacrifices commander (${caster.commander.name})`,
+      });
+    }
+  }
+  if (p.sacLands > 0) {
+    let remaining = p.sacLands;
+    while (remaining > 0 && caster.lands.length > 0) {
+      const land = caster.lands.shift();
+      if (!land) break;
+      caster.graveyard.push(land);
+      remaining -= 1;
+    }
+  }
+  if (p.discardCards > 0) {
+    // Discard the lowest-priority cards (highest CMC stragglers, etc.).
+    const ordered = [...caster.hand]
+      .map((c, i) => ({ c, i }))
+      .filter((x) => x.c !== card)
+      .sort((a, b) => b.c.cmc - a.c.cmc);
+    for (let n = 0; n < p.discardCards && n < ordered.length; n += 1) {
+      const target = ordered[n]!.c;
+      const idx = caster.hand.indexOf(target);
+      if (idx >= 0) {
+        caster.hand.splice(idx, 1);
+        caster.graveyard.push(target);
+      }
+    }
+  }
+  if (p.payLife > 0) {
+    caster.life -= p.payLife;
+  }
+}
+
 function tryCast(
   caster: PlayerState,
   card: CardProfile,
@@ -206,6 +316,7 @@ function tryCast(
   rng: Rng,
 ): boolean {
   if (card.cmc > manaPool.value) return false;
+  if (!meetsPrerequisites(caster, others, card)) return false;
 
   const isWincon = card.isAltWincon;
   // Probabilistic counter check across opponents.
@@ -235,6 +346,7 @@ function tryCast(
   if (countered) return true; // turn-pass effects still apply (spell happened)
 
   manaPool.value -= card.cmc;
+  consumePrerequisites(caster, card, log, turn);
   if (card.isCommander) {
     caster.commanderInPlay = true;
     caster.commanderCastTurn = caster.commanderCastTurn ?? turn;
